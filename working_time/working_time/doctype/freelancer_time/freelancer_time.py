@@ -9,8 +9,6 @@ from frappe.model.docstatus import DocStatus
 from working_time.working_time.doctype.working_time.working_time import (
 	FIVE_MINUTES,
 	ONE_HOUR,
-	get_description,
-	get_jira_issue_url,
 )
 from working_time.jira_utils import get_description, get_jira_issue_url
 
