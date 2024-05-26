@@ -14,6 +14,11 @@ from working_time.jira_utils import get_description, get_jira_issue_url
 
 
 class FreelancerTime(Document):
+	def before_validate(self):
+		self.total_duration = sum(
+			log.duration for log in self.time_logs if log.duration
+		)
+
 	def on_submit(self):
 		self.create_timesheets()
 
