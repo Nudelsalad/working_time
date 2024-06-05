@@ -9,6 +9,7 @@ from frappe.model.docstatus import DocStatus
 from working_time.working_time.doctype.working_time.working_time import (
 	FIVE_MINUTES,
 	ONE_HOUR,
+	parse_note,
 )
 from working_time.jira_utils import get_description, get_jira_issue_url
 
@@ -38,6 +39,7 @@ class FreelancerTime(Document):
 					log.project,
 					["customer", "billing_rate", "jira_site"],
 				)
+				customer_note, internal_note = parse_note(log.note)
 
 				frappe.get_doc(
 					{
@@ -55,13 +57,14 @@ class FreelancerTime(Document):
 								"from_time": log.date,
 								"billing_hours": billing_hours,
 								"description": get_description(
-									jira_site, log.issue_key, log.note
+									jira_site, log.issue_key, customer_note
 								),
 								"jira_issue_url": get_jira_issue_url(
 									jira_site, log.issue_key
 								),
 							}
 						],
+						"note": internal_note,
 						"parent_project": log.project,
 						"customer": customer,
 						"freelancer_time": self.name,

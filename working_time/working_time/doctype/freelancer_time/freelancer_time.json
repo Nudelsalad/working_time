@@ -11,6 +11,8 @@
   "to_date",
   "section_break_xapm1",
   "time_logs",
+  "note_explainer",
+  "section_break_7foco",
   "total_duration",
   "amended_from"
  ],
@@ -55,6 +57,15 @@
    "hide_seconds": 1,
    "label": "Total Duration",
    "read_only": 1
+  },
+  {
+   "fieldname": "note_explainer",
+   "fieldtype": "HTML",
+   "options": "<p class=\"text-muted\">Notes starting with <code>\"+ \"</code> will get printed on the invoice, if any.<br>Other notes will be treated as internal.</p><p></p>"
+  },
+  {
+   "fieldname": "section_break_7foco",
+   "fieldtype": "Section Break"
   }
  ],
  "is_submittable": 1,
@@ -64,7 +75,7 @@
    "link_fieldname": "freelancer_time"
   }
  ],
- "modified": "2024-05-26 22:55:53.766556",
+ "modified": "2024-06-05 23:58:40.398124",
  "modified_by": "Administrator",
  "module": "Working Time",
  "name": "Freelancer Time",
