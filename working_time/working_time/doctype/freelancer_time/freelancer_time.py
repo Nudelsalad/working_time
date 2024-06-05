@@ -4,6 +4,7 @@
 import math
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.model.docstatus import DocStatus
 from working_time.working_time.doctype.working_time.working_time import (
@@ -12,6 +13,7 @@ from working_time.working_time.doctype.working_time.working_time import (
 	parse_note,
 )
 from working_time.jira_utils import get_description, get_jira_issue_url
+from frappe.utils.data import date_diff
 
 
 class FreelancerTime(Document):
@@ -19,6 +21,24 @@ class FreelancerTime(Document):
 		self.total_duration = sum(
 			log.duration for log in self.time_logs if log.duration
 		)
+
+	def validate(self):
+		self.validate_from_to_dates("from_date", "to_date")
+
+		for log in self.time_logs:
+			if date_diff(self.to_date, log.date) < 0:
+				frappe.throw(
+					_("The date in row {0} is after the end date.").format(
+						log.idx
+					)
+				)
+
+			if date_diff(log.date, self.from_date) < 0:
+				frappe.throw(
+					_("The date in row {0} is before the start date.").format(
+						log.idx
+					)
+				)
 
 	def on_submit(self):
 		self.create_timesheets()
