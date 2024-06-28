@@ -87,14 +87,13 @@ def daterange(start_date, end_date):
 def get_data(employee, from_date, to_date, daily_working_hours):
 	holiday_list = frappe.db.get_value("Employee", employee, "holiday_list")
 	for current_date in daterange(from_date, to_date):
-		actual_working_time = (
-			frappe.db.get_value(
-				"Working Time",
-				{"employee": employee, "date": current_date, "docstatus": 1},
-				"working_time",
-			)
-			or 0
-		)
+		actual_working_time = frappe.get_list(
+			"Working Time",
+			filters={"employee": employee, "date": current_date, "docstatus": 1},
+			fields=["SUM(working_time)"],
+			as_list=True,
+		)[0][0] or 0
+
 		weekday = format_date(current_date, format="EEE", locale=frappe.local.lang)
 		on_leave = int(
 			bool(
