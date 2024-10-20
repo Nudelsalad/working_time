@@ -22,7 +22,7 @@ class JiraClient:
         self.session.headers = {"Accept": "application/json"}
 
     def get(self, url: str, params=None):
-        response = self.session.get(url, params=params)
+        response = self.session.get(url, params=params, verify=False)
 
         try:
             response.raise_for_status()
