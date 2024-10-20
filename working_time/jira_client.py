@@ -39,9 +39,9 @@ class JiraClient:
         return response.json()
 
     def get_issue_summary(self, key: str) -> str:
-        url = f"{self.url}/rest/api/2/issue/{key}"
+        url = f"{self.url}/api/v3/work_packages/{key}"
         params = {
-            "fields": "summary",
+            
         }
 
-        return self.get(url, params=params).get("fields").get("summary")
+        return self.get(url, params=params).get("_embedded", {}).get("subject", "")
