@@ -15,7 +15,7 @@
  ],
  "fields": [
   {
-   "description": "e.g. your-domain.atlassian.net",
+   "description": "e.g. your-domain.openproject.com",
    "fieldname": "site_url",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -49,7 +49,7 @@
  "modified": "2023-01-30 10:13:44.680028",
  "modified_by": "Administrator",
  "module": "Working Time",
- "name": "Jira Site",
+ "name": "OpenProject Site",
  "owner": "Administrator",
  "permissions": [
   {
