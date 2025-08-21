@@ -27,21 +27,30 @@ class OpenProjectClient:
 		try:
 			response.raise_for_status()
 		except requests.HTTPError:
-			error_text = json.loads(response.text)
-			error_message = (
-				error_text.get("errorMessage")
-				or (error_text.get("errorMessages") or [None])[0]
-				or error_text.get("message")
-				or "Something went wrong."
-			)
+			try:
+				error_text = json.loads(response.text)
+				# OpenProject API error format
+				error_message = (
+					error_text.get("message")
+					or error_text.get("errorMessage")
+					or (error_text.get("errorMessages") or [None])[0]
+					or "Something went wrong."
+				)
+			except (json.JSONDecodeError, KeyError):
+				error_message = f"HTTP {response.status_code}: {response.reason}"
 
 			frappe.throw(f"{url}: {_(error_message)}")
 
 		return response.json()
 
 	def get_work_package_summary(self, key: str) -> str:
+		"""Get the subject/title of an OpenProject work package by its ID."""
 		url = f"{self.url}/api/v3/work_packages/{key}"
 		params = {}
 
-		response = self.get(url, params=params)
-		return response.get("subject", "")
+		try:
+			response = self.get(url, params=params)
+			return response.get("subject", "")
+		except Exception:
+			# If we can't fetch the work package, just return empty string
+			return ""

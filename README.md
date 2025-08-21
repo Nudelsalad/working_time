@@ -1,15 +1,15 @@
-Timetracking and Attendance in ERPNext, integrated with Jira
+Timetracking and Attendance in ERPNext, integrated with OpenProject
 
 ## Who is this for?
 
-Companies that use Atlassian Jira for project management and ERPNext for time tracking and billing.
+Companies that use OpenProject for project management and ERPNext for time tracking and billing.
 
 ## Features
 
 - Allows logging of miscellanous time, project time and breaks
 - Allows to set a percentage of working time as billable time in a Working Time Log
 - Rounds billable time to 5 minutes
-- Fetches issue titles from Jira (used as time log description)
+- Fetches work package titles from OpenProject (used as time log description)
 - Creates ERPNext **Timesheets**
 - Creates ERPNext **Attendances**
 - Report of actual vs. expected working time per Employee
@@ -26,15 +26,15 @@ Companies that use Atlassian Jira for project management and ERPNext for time tr
    bench install-app working_time
    ```
 
-- Create a **Jira Site**, enter your _Site URL_, _Username_ and _API Token_
+- Create an **OpenProject Site**, enter your _Site URL_, _Username_ and _API Token_
 - Open or create an ERPNext **Project**
-    - Link it to your **Jira Site**
+    - Link it to your **OpenProject Site**
     - Set the _Billing Rate per Hour_
 - Create **Activity Cost** records for your **Employees** (_Activity Type_: "Default")
 - Create your first **Working Time**
     - Add a time log with description,
     - Add a time log and mark it as a break,
-    - Add a time log and link it to a _Project_ and Jira issue _Key_
+    - Add a time log and link it to a _Project_ and OpenProject work package _Key_
 - Submit your **Working Time**
 
 ## Further Reading
@@ -43,7 +43,7 @@ Want to add pretty time logs to your invoice? Check out our [print formats](http
 
 ## License
 
-ERPNext extension "Working Time": Timetracking and Attendance in ERPNext, integrated with Jira.
+ERPNext extension "Working Time": Timetracking and Attendance in ERPNext, integrated with OpenProject.
 Copyright (C) 2024 ALYF GmbH and contributors
 
 This program is free software: you can redistribute it and/or modify
