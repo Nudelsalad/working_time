@@ -9,7 +9,7 @@ from frappe.model.docstatus import DocStatus
 from frappe.model.document import Document
 from frappe.utils.data import date_diff
 
-from working_time.jira_utils import get_description, get_jira_issue_url
+from working_time.openproject_utils import get_description, get_openproject_work_package_url
 from working_time.working_time.doctype.working_time.working_time import (
 	FIVE_MINUTES,
 	ONE_HOUR,
@@ -43,10 +43,10 @@ class FreelancerTime(Document):
 				costing_rate = get_rate_and_currency(self.owner, log.date)
 				billing_hours = hours = math.ceil(log.duration / FIVE_MINUTES) * FIVE_MINUTES / ONE_HOUR
 
-				customer, billing_rate, jira_site = frappe.get_value(
+				customer, billing_rate, openproject_site = frappe.get_value(
 					"Project",
 					log.project,
-					["customer", "billing_rate", "jira_site"],
+					["customer", "billing_rate", "openproject_site"],
 				)
 				customer_note, internal_note = parse_note(log.note)
 
@@ -65,8 +65,8 @@ class FreelancerTime(Document):
 								"hours": hours,
 								"from_time": log.date,
 								"billing_hours": billing_hours,
-								"description": get_description(jira_site, log.issue_key, customer_note),
-								"jira_issue_url": get_jira_issue_url(jira_site, log.issue_key),
+								"description": get_description(openproject_site, log.issue_key, customer_note),
+								"openproject_work_package_url": get_openproject_work_package_url(openproject_site, log.issue_key),
 							}
 						],
 						"note": internal_note,

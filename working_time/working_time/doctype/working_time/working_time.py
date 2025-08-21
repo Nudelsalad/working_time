@@ -9,7 +9,7 @@ from frappe.model.docstatus import DocStatus
 from frappe.model.document import Document
 from frappe.utils.data import add_to_date, flt, getdate
 
-from working_time.jira_utils import get_description, get_jira_issue_url
+from working_time.openproject_utils import get_description, get_openproject_work_package_url
 from working_time.working_time.number_card.number_cards import get_chart_data
 
 HALF_DAY = 3.25
@@ -89,10 +89,10 @@ class WorkingTime(Document):
 
 		for (project, key), data in aggregated_time_logs.items():
 			costing_rate = get_costing_rate(self.employee)
-			customer, billing_rate, jira_site = frappe.get_value(
+			customer, billing_rate, openproject_site = frappe.get_value(
 				"Project",
 				project,
-				["customer", "billing_rate", "jira_site"],
+				["customer", "billing_rate", "openproject_site"],
 			)
 
 			frappe.get_doc(
@@ -110,8 +110,8 @@ class WorkingTime(Document):
 							"hours": data["hours"],
 							"from_time": self.date,
 							"billing_hours": data["billable_hours"],
-							"description": get_description(jira_site, key, "; ".join(data["customer_notes"])),
-							"jira_issue_url": get_jira_issue_url(jira_site, key),
+							"description": get_description(openproject_site, key, "; ".join(data["customer_notes"])),
+							"openproject_work_package_url": get_openproject_work_package_url(openproject_site, key),
 						}
 					],
 					"note": ",\n".join(data["internal_notes"]),
