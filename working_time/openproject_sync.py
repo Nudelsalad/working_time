@@ -132,10 +132,16 @@ def _map_priority(op_title: Optional[str]) -> str:
     if not t:
         return 'Medium'
     mapping = {
-        'Low': 'Low',
-        'Medium': 'Medium',
-        'High': 'High',
-        'Urgent': 'Urgent',
+        'low': 'Low',
+        'lowest': 'Low',
+        'niedrig': 'Low',
+        'medium': 'Medium',
+        'mittel': 'Medium',
+        'normal': 'Medium',
+        'high': 'High',
+        'highest': 'High',
+        'urgent': 'High',
+        'dringend': 'High',
     }
     return mapping.get(t, 'Medium')
 
@@ -203,8 +209,11 @@ def _work_package_to_task_fields(project: str, site: str, wp: Dict[str, Any]) ->
         erp_status = 'Working'
     elif s in {'rejected', 'cancelled', 'canceled'}:
         erp_status = 'Cancelled'
-    elif s in {'on hold', 'blocked', 'review'}:
+    elif s in {'on hold', 'blocked', 'review', 'in testing', 'tested', 'developed'}:
         erp_status = 'Pending Review'
+    elif s in {'test failed'}:
+        erp_status = 'Working'
+    # 'new' and 'in specification' remain 'Open'
     return {
         'doctype': 'Task',
         'project': project,
@@ -296,12 +305,9 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
         spent_on = te.get('spentOn')  # yyyy-mm-dd
         hours = _parse_iso8601_duration_to_hours(te.get('hours'))
         comments = (te.get('comment') or {}).get('raw', '')
-        activity = ((te.get('_embedded') or {}).get('activity') or {}).get('name') or 'Default'
-        # On-site flag from OpenProject custom field; use dedicated Activity Type for pricing
+        activity = 'Default'
+        # On-site flag from OpenProject custom field; don't change Activity Type, only store flags
         on_site_flag = bool(te.get('customField1'))
-        if on_site_flag:
-            _ensure_activity_type('On Site')
-            activity = 'On Site'
         wp_link = ((te.get('_links') or {}).get('workPackage') or {}).get('href')
         wp_id = None
         if wp_link and wp_link.rstrip('/').split('/')[-2] == 'work_packages':
@@ -334,6 +340,11 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             if changed:
                 # Save through parent to recalc
                 parent = frappe.get_doc('Timesheet', ts_detail.parent)
+                # Set parent checkbox based on entry
+                try:
+                    parent.openproject_on_site = on_site_flag
+                except Exception:
+                    pass
                 parent.flags.ignore_permissions = True
                 parent.save()
                 updated_ts_details += 1
@@ -349,6 +360,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             'doctype': 'Timesheet',
             'employee': employee,
             'project': project_name,
+            'openproject_on_site': on_site_flag,
             'time_logs': [
                 {
                     'activity_type': activity,

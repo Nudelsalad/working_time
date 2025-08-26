@@ -307,6 +307,14 @@ working_time_custom_fields = {
 			"translatable": 0,
 			"read_only": 1,
 		},
+		{
+			"fieldname": "openproject_on_site",
+			"label": "On Site (from OpenProject)",
+			"fieldtype": "Check",
+			"insert_after": "freelancer_time",
+			"read_only": 1,
+			"translatable": 0,
+		},
 	],
 	"Attendance": [
 		{
