@@ -325,10 +325,27 @@ working_time_custom_fields = {
 			"read_only": 1,
 		}
 	],
+	"Sales Invoice Timesheet": [
+		{
+			"fieldname": "technician_on_site",
+			"label": "Technician on Site",
+			"fieldtype": "Check",
+			"insert_after": "billing_hours",
+			"read_only": 1,
+			"in_list_view": 1,
+			"translatable": 0,
+			"fetch_from": "time_sheet.technician_on_site"
+		}
+	],
 }
 
 # Add client script for Project to expose a "Sync from OpenProject" button
 doctype_js = {
 	"Project": "public/js/project.js",
 	"Task": "public/js/task.js",
+	"Sales Invoice": "public/js/sales_invoice.js",
+}
+
+doctype_list_js = {
+	"Task": "public/js/task_list.js",
 }
