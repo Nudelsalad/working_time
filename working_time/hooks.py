@@ -185,8 +185,6 @@ working_time_custom_fields = {
 			"label": "Technician on Site",
 			"fieldtype": "Check",
 			"insert_after": "parent_project",
-			"read_only": 1,
-			"translatable": 0,
 		},
 		{
 			"fieldname": "openproject_section",
@@ -332,4 +330,5 @@ working_time_custom_fields = {
 # Add client script for Project to expose a "Sync from OpenProject" button
 doctype_js = {
 	"Project": "public/js/project.js",
+	"Task": "public/js/task.js",
 }

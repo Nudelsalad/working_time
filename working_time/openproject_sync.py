@@ -194,7 +194,10 @@ def _get_employee_for_op_user(client: OpenProjectClient, te: Dict[str, Any]) -> 
 def _work_package_to_task_fields(project: str, site: str, wp: Dict[str, Any]) -> Dict[str, Any]:
     subject = wp.get('subject')
     wp_id = wp.get('id')
-    status = ((wp.get('_embedded') or {}).get('status') or {}).get('name')
+    status = (
+        ((wp.get('_embedded') or {}).get('status') or {}).get('name')
+        or (((wp.get('_links') or {}).get('status') or {}).get('title'))
+    )
     description = (wp.get('description') or {}).get('raw', '')
     start_date = wp.get('startDate')
     due_date = wp.get('dueDate')
