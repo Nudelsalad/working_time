@@ -181,6 +181,14 @@ scheduler_events = {
 working_time_custom_fields = {
 	"Timesheet Detail": [
 		{
+			"fieldname": "technician_on_site",
+			"label": "Technician on Site",
+			"fieldtype": "Check",
+			"insert_after": "parent_project",
+			"read_only": 1,
+			"translatable": 0,
+		},
+		{
 			"fieldname": "openproject_section",
 			"label": "OpenProject",
 			"fieldtype": "Section Break",
@@ -209,14 +217,6 @@ working_time_custom_fields = {
 			"fieldtype": "Data",
 			"Options": "URL",
 			"insert_after": "openproject_time_entry_id",
-			"read_only": 1,
-			"translatable": 0,
-		},
-		{
-			"fieldname": "openproject_on_site",
-			"label": "On Site (from OpenProject)",
-			"fieldtype": "Check",
-			"insert_after": "openproject_time_entry_url",
 			"read_only": 1,
 			"translatable": 0,
 		},
@@ -308,8 +308,8 @@ working_time_custom_fields = {
 			"read_only": 1,
 		},
 		{
-			"fieldname": "openproject_on_site",
-			"label": "On Site (from OpenProject)",
+			"fieldname": "technician_on_site",
+			"label": "Technician on Site",
 			"fieldtype": "Check",
 			"insert_after": "freelancer_time",
 			"read_only": 1,

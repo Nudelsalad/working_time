@@ -334,15 +334,15 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 ts_detail.openproject_work_package_url = new_wp_url
                 changed = True
             # Update on-site flag from OP customField1
-            if int(ts_detail.get('openproject_on_site') or 0) != int(on_site_flag):
-                ts_detail.openproject_on_site = on_site_flag
+            if int(ts_detail.get('technician_on_site') or 0) != int(on_site_flag):
+                ts_detail.technician_on_site = on_site_flag
                 changed = True
             if changed:
                 # Save through parent to recalc
                 parent = frappe.get_doc('Timesheet', ts_detail.parent)
                 # Set parent checkbox based on entry
                 try:
-                    parent.openproject_on_site = on_site_flag
+                    parent.technician_on_site = on_site_flag
                 except Exception:
                     pass
                 parent.flags.ignore_permissions = True
@@ -360,7 +360,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             'doctype': 'Timesheet',
             'employee': employee,
             'project': project_name,
-            'openproject_on_site': on_site_flag,
+            'technician_on_site': on_site_flag,
             'time_logs': [
                 {
                     'activity_type': activity,
@@ -371,7 +371,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                     'openproject_time_entry_id': str(te_id),
                     'openproject_time_entry_url': f"{client.url}/time_entries/{te_id}",
                     'openproject_work_package_url': get_openproject_work_package_url(site, wp_id) if wp_id else None,
-                    'openproject_on_site': on_site_flag,
+                    'technician_on_site': on_site_flag,
                 }
             ]
         })
