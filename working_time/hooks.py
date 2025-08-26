@@ -29,7 +29,7 @@ app_license = "-"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {"Project": "public/js/project.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -221,10 +221,18 @@ working_time_custom_fields = {
 			"translatable": 0,
 		},
 		{
+			"fieldname": "openproject_id",
+			"label": "OpenProject Project ID",
+			"fieldtype": "Data",
+			"insert_after": "openproject_site",
+			"translatable": 0,
+			"description": "OpenProject project ID for syncing time entries",
+		},
+		{
 			"fieldname": "default_key",
 			"label": "Default Key",
 			"fieldtype": "Data",
-			"insert_after": "openproject_site",
+			"insert_after": "openproject_id",
 			"translatable": 0,
 		},
 	],
@@ -246,6 +254,15 @@ working_time_custom_fields = {
 			"insert_after": "working_time",
 			"translatable": 0,
 			"read_only": 1,
+		},
+		{
+			"fieldname": "openproject_time_entry_id",
+			"label": "OpenProject Time Entry ID",
+			"fieldtype": "Data",
+			"insert_after": "freelancer_time",
+			"translatable": 0,
+			"read_only": 1,
+			"hidden": 1,
 		},
 	],
 	"Attendance": [

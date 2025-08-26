@@ -54,3 +54,31 @@ class OpenProjectClient:
 		except Exception:
 			# If we can't fetch the work package, just return empty string
 			return ""
+
+	def fetch_time_entries(self, project_id: str, filters=None):
+		"""Fetch time entries for a specific project from OpenProject API."""
+		url = f"{self.url}/api/v3/time_entries"
+		params = {
+			"filters": f'[{{"project":{{"operator":"=","values":["{project_id}"]}}}}]'
+		}
+		
+		# Add additional filters if provided
+		if filters:
+			import json
+			filter_list = json.loads(params["filters"])
+			if isinstance(filters, dict):
+				for key, value in filters.items():
+					if key == "user":
+						filter_list.append({"user": {"operator": "=", "values": [value]}})
+					elif key == "spent_on":
+						filter_list.append({"spent_on": {"operator": "=", "values": [value]}})
+					elif key == "created_at":
+						filter_list.append({"created_at": {"operator": ">=", "values": [value]}})
+			params["filters"] = json.dumps(filter_list)
+
+		try:
+			response = self.get(url, params=params)
+			return response.get("_embedded", {}).get("elements", [])
+		except Exception as e:
+			frappe.log_error(f"Failed to fetch time entries: {str(e)}")
+			return []
