@@ -112,9 +112,9 @@ scheduler_events = {
 		"working_time.reminders.send_stale_reminders",
 		"working_time.reminders.send_month_end_reminders",
 	],
-	# 	"hourly": [
-	# 		"working_time.tasks.hourly"
-	# 	],
+	"hourly": [
+		"working_time.openproject_sync.sync_all_projects_from_openproject"
+	],
 	# 	"weekly": [
 	# 		"working_time.tasks.weekly"
 	# 	]
@@ -195,6 +195,23 @@ working_time_custom_fields = {
 			"read_only": 1,
 			"translatable": 0,
 		},
+		{
+			"fieldname": "openproject_time_entry_id",
+			"label": "OpenProject Time Entry ID",
+			"fieldtype": "Data",
+			"insert_after": "openproject_work_package_url",
+			"read_only": 1,
+			"translatable": 0,
+		},
+		{
+			"fieldname": "openproject_time_entry_url",
+			"label": "OpenProject Time Entry URL",
+			"fieldtype": "Data",
+			"Options": "URL",
+			"insert_after": "openproject_time_entry_id",
+			"read_only": 1,
+			"translatable": 0,
+		},
 	],
 	"Project": [
 		{
@@ -225,6 +242,56 @@ working_time_custom_fields = {
 			"label": "Default Key",
 			"fieldtype": "Data",
 			"insert_after": "openproject_site",
+			"translatable": 0,
+		},
+		{
+			"fieldname": "openproject_project_id",
+			"label": "OpenProject Project ID",
+			"fieldtype": "Data",
+			"insert_after": "default_key",
+			"translatable": 0,
+			"description": "Numeric ID of the corresponding OpenProject project.",
+		},
+		{
+			"fieldname": "openproject_default_employee",
+			"label": "Default Employee for OP Sync",
+			"fieldtype": "Link",
+			"options": "Employee",
+			"insert_after": "openproject_project_id",
+			"translatable": 0,
+		},
+		{
+			"fieldname": "openproject_last_synced_at",
+			"label": "OpenProject Last Synced At",
+			"fieldtype": "Datetime",
+			"insert_after": "openproject_default_employee",
+			"read_only": 1,
+			"translatable": 0,
+		},
+	],
+	"Task": [
+		{
+			"fieldname": "openproject_section",
+			"label": "OpenProject",
+			"fieldtype": "Section Break",
+			"insert_after": "_assign",
+			"collapsible": 1,
+		},
+		{
+			"fieldname": "openproject_work_package_id",
+			"label": "Work Package ID",
+			"fieldtype": "Data",
+			"insert_after": "openproject_section",
+			"read_only": 1,
+			"translatable": 0,
+		},
+		{
+			"fieldname": "openproject_work_package_url_task",
+			"label": "Work Package URL",
+			"fieldtype": "Data",
+			"Options": "URL",
+			"insert_after": "openproject_work_package_id",
+			"read_only": 1,
 			"translatable": 0,
 		},
 	],
@@ -259,4 +326,9 @@ working_time_custom_fields = {
 			"read_only": 1,
 		}
 	],
+}
+
+# Add client script for Project to expose a "Sync from OpenProject" button
+doctype_js = {
+	"Project": "public/js/project.js",
 }
