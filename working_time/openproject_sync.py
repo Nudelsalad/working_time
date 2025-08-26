@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Optional, Tuple
 
 import frappe
 from frappe import _
@@ -78,15 +78,15 @@ def _parse_iso8601_duration_to_hours(value: str | float | int | None) -> float:
     return days * 24.0 + hours + minutes / 60.0 + seconds / 3600.0
 
 
-def _project_settings(project: str) -> Tuple[str, str, Optional[str]]:
-    site, op_project_id, default_employee = frappe.get_value(
-        'Project', project, ['openproject_site', 'openproject_project_id', 'openproject_default_employee']
+def _project_settings(project: str) -> Tuple[str, str]:
+    site, op_project_id = frappe.get_value(
+        'Project', project, ['openproject_site', 'openproject_project_id']
     )
     if not site:
         frappe.throw(_('Please set OpenProject Site on Project'))
     if not op_project_id:
         frappe.throw(_('Please set OpenProject Project ID on Project'))
-    return site, op_project_id, default_employee
+    return site, op_project_id
 
 
 def _client(site: str) -> OpenProjectClient:
@@ -122,14 +122,10 @@ def _extract_id_from_href(href: Optional[str]) -> Optional[str]:
     return parts[-1] if parts else None
 
 
-def _get_employee_for_op_user(
-    client: OpenProjectClient,
-    te: Dict[str, Any],
-    cache: Dict[str, Optional[str]],
-) -> Optional[str]:
-    # Resolve OP user from embedded or link
+def _get_employee_for_op_user(client: OpenProjectClient, te: Dict[str, Any]) -> Optional[str]:
+    """Resolve ERPNext Employee by OpenProject user email/login from a time entry."""
     user = (te.get('_embedded') or {}).get('user')
-    user_id = None
+    user_id: Optional[str] = None
     if user:
         user_id = str(user.get('id')) if user.get('id') is not None else None
     if not user_id:
@@ -137,10 +133,8 @@ def _get_employee_for_op_user(
         user_id = _extract_id_from_href(user_href)
     if not user_id:
         return None
-    if user_id in cache:
-        return cache[user_id]
 
-    # Fetch user if not embedded enough
+    # Ensure we have email/login; fetch if needed
     if not user or ('mail' not in user and 'login' not in user):
         try:
             user = client.get(f"{client.url}/api/v3/users/{user_id}")
@@ -148,19 +142,16 @@ def _get_employee_for_op_user(
             user = user or {}
 
     email = user.get('mail') or user.get('email') or user.get('login') or None
-    employee: Optional[str] = None
-    if email:
-        # Try company_email then personal_email
-        employee = frappe.db.get_value('Employee', {'company_email': email}, 'name')
-        if not employee:
-            employee = frappe.db.get_value('Employee', {'personal_email': email}, 'name')
-        if not employee:
-            # Try via linked User
-            user_name = frappe.db.get_value('User', {'email': email}, 'name')
-            if user_name:
-                employee = frappe.db.get_value('Employee', {'user_id': user_name}, 'name')
-
-    cache[user_id] = employee
+    if not email:
+        return None
+    # Try company_email then personal_email then via linked User
+    employee = frappe.db.get_value('Employee', {'company_email': email}, 'name')
+    if not employee:
+        employee = frappe.db.get_value('Employee', {'personal_email': email}, 'name')
+    if not employee:
+        user_name = frappe.db.get_value('User', {'email': email}, 'name')
+        if user_name:
+            employee = frappe.db.get_value('Employee', {'user_id': user_name}, 'name')
     return employee
 
 
@@ -210,7 +201,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
     - Creates/updates Tasks mapped from work packages.
     - Creates Timesheets from time entries (if not already mirrored), linked to Task when possible.
     """
-    site, op_project_id, default_employee = _project_settings(project_name)
+    site, op_project_id = _project_settings(project_name)
     client = _client(site)
 
     # 1) Work packages -> Tasks
@@ -260,7 +251,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
 
     created_ts_details = 0
     updated_ts_details = 0
-    user_employee_cache: Dict[str, Optional[str]] = {}
+    # No cache: do direct lookup for simplicity
 
     for te in _iter_paginated(client, te_url, te_filters):
         te_id = te.get('id')
@@ -314,8 +305,8 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 updated_ts_details += 1
             continue
 
-        # Determine employee for new entries: map OP user -> Employee by email/login; fallback to default
-        employee = _get_employee_for_op_user(client, te, user_employee_cache) or default_employee
+        # Determine employee for new entries: map OP user -> Employee by email/login
+        employee = _get_employee_for_op_user(client, te)
         if not employee:
             # Skip creating without an employee mapping
             continue
