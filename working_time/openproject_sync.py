@@ -103,7 +103,8 @@ def _iter_paginated(client: OpenProjectClient, url: str, params: Dict[str, Any])
     while True:
         p = dict(params)
         p['pageSize'] = page_size
-        p['offset'] = page
+        # OpenProject expects offset as 1-based index of the first element
+        p['offset'] = (page - 1) * page_size + 1
         data = client.get(url, params=p)
         elements = (data.get('_embedded') or {}).get('elements') or []
         for e in elements:
@@ -120,6 +121,35 @@ def _extract_id_from_href(href: Optional[str]) -> Optional[str]:
         return None
     parts = href.rstrip('/').split('/')
     return parts[-1] if parts else None
+
+
+def _map_priority(op_title: Optional[str]) -> str:
+    """Map OpenProject priority title to ERPNext Task.priority options.
+
+    Defaults to 'Medium' when unknown. Handles common English and German labels.
+    """
+    t = (op_title or '').strip().lower()
+    if not t:
+        return 'Medium'
+    mapping = {
+        'Low': 'Low',
+        'Medium': 'Medium',
+        'High': 'High',
+        'Urgent': 'Urgent',
+    }
+    return mapping.get(t, 'Medium')
+
+
+def _ensure_activity_type(name: str):
+    """Create Activity Type if missing (minimal, to avoid insertion errors)."""
+    if not frappe.db.exists('Activity Type', name):
+        doc = frappe.get_doc({
+            'doctype': 'Activity Type',
+            'activity_type': name,
+            'is_billable': 1,
+        })
+        doc.flags.ignore_permissions = True
+        doc.insert()
 
 
 def _get_employee_for_op_user(client: OpenProjectClient, te: Dict[str, Any]) -> Optional[str]:
@@ -162,6 +192,7 @@ def _work_package_to_task_fields(project: str, site: str, wp: Dict[str, Any]) ->
     description = (wp.get('description') or {}).get('raw', '')
     start_date = wp.get('startDate')
     due_date = wp.get('dueDate')
+    priority_title = (((wp.get('_links') or {}).get('priority') or {}).get('title'))
     url = get_openproject_work_package_url(site, wp_id)
     # Map OP -> ERPNext Task status
     erp_status = 'Open'
@@ -179,6 +210,7 @@ def _work_package_to_task_fields(project: str, site: str, wp: Dict[str, Any]) ->
         'project': project,
         'subject': subject or f'OP #{wp_id}',
         'status': erp_status,
+        'priority': _map_priority(priority_title),
         'description': description,
         'exp_start_date': start_date,
         'exp_end_date': due_date,
@@ -225,6 +257,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             frappe.db.set_value('Task', existing, {
                 'subject': fields['subject'],
                 'status': fields['status'],
+                'priority': fields['priority'],
                 'description': fields['description'],
                 'exp_start_date': fields['exp_start_date'],
                 'exp_end_date': fields['exp_end_date'],
@@ -267,6 +300,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
         # On-site flag from OpenProject custom field; use dedicated Activity Type for pricing
         on_site_flag = bool(te.get('customField1'))
         if on_site_flag:
+            _ensure_activity_type('On Site')
             activity = 'On Site'
         wp_link = ((te.get('_links') or {}).get('workPackage') or {}).get('href')
         wp_id = None
