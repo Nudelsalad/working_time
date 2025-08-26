@@ -212,6 +212,14 @@ working_time_custom_fields = {
 			"read_only": 1,
 			"translatable": 0,
 		},
+		{
+			"fieldname": "openproject_on_site",
+			"label": "On Site (from OpenProject)",
+			"fieldtype": "Check",
+			"insert_after": "openproject_time_entry_url",
+			"read_only": 1,
+			"translatable": 0,
+		},
 	],
 	"Project": [
 		{

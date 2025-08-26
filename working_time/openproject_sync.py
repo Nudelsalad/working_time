@@ -115,6 +115,55 @@ def _iter_paginated(client: OpenProjectClient, url: str, params: Dict[str, Any])
         page += 1
 
 
+def _extract_id_from_href(href: Optional[str]) -> Optional[str]:
+    if not href:
+        return None
+    parts = href.rstrip('/').split('/')
+    return parts[-1] if parts else None
+
+
+def _get_employee_for_op_user(
+    client: OpenProjectClient,
+    te: Dict[str, Any],
+    cache: Dict[str, Optional[str]],
+) -> Optional[str]:
+    # Resolve OP user from embedded or link
+    user = (te.get('_embedded') or {}).get('user')
+    user_id = None
+    if user:
+        user_id = str(user.get('id')) if user.get('id') is not None else None
+    if not user_id:
+        user_href = ((te.get('_links') or {}).get('user') or {}).get('href')
+        user_id = _extract_id_from_href(user_href)
+    if not user_id:
+        return None
+    if user_id in cache:
+        return cache[user_id]
+
+    # Fetch user if not embedded enough
+    if not user or ('mail' not in user and 'login' not in user):
+        try:
+            user = client.get(f"{client.url}/api/v3/users/{user_id}")
+        except Exception:
+            user = user or {}
+
+    email = user.get('mail') or user.get('email') or user.get('login') or None
+    employee: Optional[str] = None
+    if email:
+        # Try company_email then personal_email
+        employee = frappe.db.get_value('Employee', {'company_email': email}, 'name')
+        if not employee:
+            employee = frappe.db.get_value('Employee', {'personal_email': email}, 'name')
+        if not employee:
+            # Try via linked User
+            user_name = frappe.db.get_value('User', {'email': email}, 'name')
+            if user_name:
+                employee = frappe.db.get_value('Employee', {'user_id': user_name}, 'name')
+
+    cache[user_id] = employee
+    return employee
+
+
 def _work_package_to_task_fields(project: str, site: str, wp: Dict[str, Any]) -> Dict[str, Any]:
     subject = wp.get('subject')
     wp_id = wp.get('id')
@@ -211,6 +260,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
 
     created_ts_details = 0
     updated_ts_details = 0
+    user_employee_cache: Dict[str, Optional[str]] = {}
 
     for te in _iter_paginated(client, te_url, te_filters):
         te_id = te.get('id')
@@ -223,6 +273,10 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
         hours = _parse_iso8601_duration_to_hours(te.get('hours'))
         comments = (te.get('comment') or {}).get('raw', '')
         activity = ((te.get('_embedded') or {}).get('activity') or {}).get('name') or 'Default'
+        # On-site flag from OpenProject custom field; use dedicated Activity Type for pricing
+        on_site_flag = bool(te.get('customField1'))
+        if on_site_flag:
+            activity = 'On Site'
         wp_link = ((te.get('_links') or {}).get('workPackage') or {}).get('href')
         wp_id = None
         if wp_link and wp_link.rstrip('/').split('/')[-2] == 'work_packages':
@@ -248,6 +302,10 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             if (ts_detail.openproject_work_package_url or '') != (new_wp_url or ''):
                 ts_detail.openproject_work_package_url = new_wp_url
                 changed = True
+            # Update on-site flag from OP customField1
+            if int(ts_detail.get('openproject_on_site') or 0) != int(on_site_flag):
+                ts_detail.openproject_on_site = on_site_flag
+                changed = True
             if changed:
                 # Save through parent to recalc
                 parent = frappe.get_doc('Timesheet', ts_detail.parent)
@@ -256,9 +314,8 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 updated_ts_details += 1
             continue
 
-        # Determine employee for new entries
-        employee = default_employee
-        # If no default employee, we could map OP user -> Employee via email here (future work)
+        # Determine employee for new entries: map OP user -> Employee by email/login; fallback to default
+        employee = _get_employee_for_op_user(client, te, user_employee_cache) or default_employee
         if not employee:
             # Skip creating without an employee mapping
             continue
@@ -277,6 +334,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                     'openproject_time_entry_id': str(te_id),
                     'openproject_time_entry_url': f"{client.url}/time_entries/{te_id}",
                     'openproject_work_package_url': get_openproject_work_package_url(site, wp_id) if wp_id else None,
+                    'openproject_on_site': on_site_flag,
                 }
             ]
         })
