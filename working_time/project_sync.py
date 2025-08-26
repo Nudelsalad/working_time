@@ -11,7 +11,11 @@ from working_time.openproject_utils import get_description, get_openproject_work
 @frappe.whitelist()
 def fetch_and_create_timesheets(project_name):
 	"""Fetch time entries from OpenProject and create timesheets in ERPNext."""
+	# Check permissions - user should have read access to the project
 	project = frappe.get_doc("Project", project_name)
+	
+	# Ensure user has permission to read this project
+	project.check_permission("read")
 	
 	if not project.openproject_site:
 		frappe.throw(_("OpenProject Site is not configured for this project"))
@@ -61,19 +65,38 @@ def fetch_and_create_timesheets(project_name):
 			frappe.log_error(f"Could not find employee for OpenProject user {user_id}")
 			continue
 		
+		# Get billing and costing rates
+		billing_rate = project.billing_rate or 0
+		
+		# Get costing rate for employee (similar to existing pattern)
+		costing_rate = 0
+		try:
+			from erpnext.projects.doctype.timesheet.timesheet import get_costing_rate
+			costing_rate = get_costing_rate(employee)
+		except ImportError:
+			# Fallback if function not available
+			costing_rate = billing_rate
+		
 		# Create timesheet
 		timesheet = frappe.get_doc({
 			"doctype": "Timesheet",
 			"employee": employee,
+			"customer": project.customer,
+			"parent_project": project_name,
 			"openproject_time_entry_id": entry.get("id"),
 			"time_logs": [{
 				"activity_type": activity,
 				"project": project_name,
 				"hours": hours,
 				"from_time": spent_on,
+				"is_billable": 1 if hours > 0 and billing_rate > 0 else 0,
+				"billing_hours": hours if hours > 0 and billing_rate > 0 else 0,
+				"billing_rate": billing_rate,
+				"base_billing_rate": billing_rate,
+				"costing_rate": costing_rate,
+				"base_costing_rate": costing_rate,
 				"description": get_description(project.openproject_site, work_package_id, comment),
 				"openproject_work_package_url": get_openproject_work_package_url(project.openproject_site, work_package_id),
-				"is_billable": 1 if hours > 0 else 0,
 			}]
 		})
 		
