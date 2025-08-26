@@ -239,10 +239,11 @@ working_time_custom_fields = {
 		},
 		{
 			"fieldname": "default_key",
-			"label": "Default Key",
+			"label": "Default Work Package ID",
 			"fieldtype": "Data",
 			"insert_after": "openproject_site",
 			"translatable": 0,
+			"description": "Optional: OpenProject Work Package ID to prefill on new Working Time logs for this Project.",
 		},
 		{
 			"fieldname": "openproject_project_id",

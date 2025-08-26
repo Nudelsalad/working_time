@@ -12,13 +12,14 @@ from requests.auth import HTTPBasicAuth
 
 class OpenProjectClient:
 	def __init__(self, openproject_site: str) -> None:
-		openproject_site = frappe.get_doc("OpenProject Site", openproject_site)
+		site_doc = frappe.get_doc("OpenProject Site", openproject_site)
 
-		self.url = f"https://{openproject_site.name}"
+		site_url = getattr(site_doc, "site_url", None) or site_doc.name
+		self.url = f"https://{site_url}"
 		self.session = requests.Session()
-		self.session.auth = HTTPBasicAuth(
-			openproject_site.username, openproject_site.get_password(fieldname="api_token")
-		)
+		# API v3 requires username to be literal 'apikey' and password = API key
+		api_key = site_doc.get_password(fieldname="api_token")
+		self.session.auth = HTTPBasicAuth("apikey", api_key)
 		self.session.headers = {"Accept": "application/json"}
 
 	def get(self, url: str, params=None):
