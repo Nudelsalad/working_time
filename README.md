@@ -14,27 +14,27 @@ Companies that use OpenProject for project management and ERPNext for time track
 - Creates ERPNext **Attendances**
 - Report of actual vs. expected working time per Employee
 - Sends email reminders to employees for submitting their draft working time entries
-    - If a draft working time entry is older than 3 days, and
-    - on the last working day of the month
+  - If a draft working time entry is older than 3 days, and
+  - on the last working day of the month
 
 ## Setup
 
 - Install this app
 
-   ```bash
-   bench get-app https://github.com/alyf-de/working_time
-   bench install-app working_time
-   ```
+  ```bash
+  bench get-app https://github.com/Nudelsalad/working_time
+  bench install-app working_time
+  ```
 
 - Create an **OpenProject Site**, enter your _Site URL_, _Username_ and _API Token_
 - Open or create an ERPNext **Project**
-    - Link it to your **OpenProject Site**
-    - Set the _Billing Rate per Hour_
+  - Link it to your **OpenProject Site**
+  - Set the _Billing Rate per Hour_
 - Create **Activity Cost** records for your **Employees** (_Activity Type_: "Default")
 - Create your first **Working Time**
-    - Add a time log with description,
-    - Add a time log and mark it as a break,
-    - Add a time log and link it to a _Project_ and OpenProject work package _Key_
+  - Add a time log with description,
+  - Add a time log and mark it as a break,
+  - Add a time log and link it to a _Project_ and OpenProject work package _Key_
 - Submit your **Working Time**
 
 ## Further Reading
@@ -53,8 +53,8 @@ the Free Software Foundation, either version 3 of the License, or
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+along with this program. If not, see <https://www.gnu.org/licenses/>.
