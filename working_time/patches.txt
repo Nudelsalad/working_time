@@ -8,3 +8,4 @@ working_time.patches.add_total_to_old_freelancer_time
 execute:from working_time.install import make_custom_fields; make_custom_fields()
 working_time.patches.add_openproject_sync_fields
 working_time.patches.remove_default_key_field
+working_time.patches.cleanup_openproject_project_id_duplicates
