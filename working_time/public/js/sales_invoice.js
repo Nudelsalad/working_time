@@ -1,14 +1,7 @@
+// Do NOT update values during refresh to avoid making the doc dirty repeatedly
 frappe.ui.form.on('Sales Invoice', {
   refresh(frm) {
-    (frm.doc.timesheets || []).forEach(row => {
-      if (row.time_sheet) {
-        frappe.db.get_value('Timesheet', row.time_sheet, 'technician_on_site').then(r => {
-          if (r && r.message) {
-            frappe.model.set_value(row.doctype, row.name, 'technician_on_site', !!r.message.technician_on_site);
-          }
-        });
-      }
-    });
+    // Intentionally empty. Fetching happens via fetch_from and row change handler.
   },
 });
 
@@ -18,7 +11,10 @@ frappe.ui.form.on('Sales Invoice Timesheet', {
     if (!row.time_sheet) return;
     frappe.db.get_value('Timesheet', row.time_sheet, 'technician_on_site').then(r => {
       if (r && r.message) {
-        frappe.model.set_value(cdt, cdn, 'technician_on_site', !!r.message.technician_on_site);
+        const fetched = !!r.message.technician_on_site;
+        if ((row.technician_on_site ? true : false) !== fetched) {
+          frappe.model.set_value(cdt, cdn, 'technician_on_site', fetched);
+        }
       }
     });
   },
