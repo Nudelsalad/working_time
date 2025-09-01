@@ -14,7 +14,7 @@ frappe.listview_settings['Task'] = {
       const do_sync = (proj) => {
         if (!proj) return;
         frappe.call({
-          method: 'working_time.working_time.openproject_sync.sync_project_from_openproject',
+          method: 'working_time.openproject_sync.sync_project_from_openproject',
           args: { project_name: proj },
           freeze: true,
         }).then(() => listview.refresh());

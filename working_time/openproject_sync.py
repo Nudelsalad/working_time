@@ -252,7 +252,12 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
     wp_url = f"{client.url}/api/v3/work_packages"
     wp_filters = {
         'filters': json.dumps([
-            { 'project': { 'operator': '=', 'values': [str(op_project_id)] } }
+            {
+                'project': {
+                    'operator': '=',
+                    'values': [f"/api/v3/projects/{op_project_id}"]
+                }
+            }
         ])
     }
 
@@ -290,7 +295,12 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
         'sortBy': json.dumps([["spent_on", "asc"]]),
         'pageSize': 100,
         'filters': json.dumps([
-            { 'project': { 'operator': '=', 'values': [str(op_project_id)] } }
+            {
+                'project': {
+                    'operator': '=',
+                    'values': [f"/api/v3/projects/{op_project_id}"]
+                }
+            }
         ])
     }
 

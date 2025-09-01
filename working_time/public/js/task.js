@@ -13,7 +13,7 @@ frappe.ui.form.on('Task', {
           d.hide();
           if (values && values.project) {
             frappe.call({
-              method: 'working_time.working_time.openproject_sync.sync_project_from_openproject',
+              method: 'working_time.openproject_sync.sync_project_from_openproject',
               args: { project_name: values.project },
               freeze: true,
               callback: () => frm.reload_doc(),
@@ -23,7 +23,7 @@ frappe.ui.form.on('Task', {
         d.show();
       } else {
         frappe.call({
-          method: 'working_time.working_time.openproject_sync.sync_project_from_openproject',
+          method: 'working_time.openproject_sync.sync_project_from_openproject',
           args: { project_name: project },
           freeze: true,
           callback: () => frm.reload_doc(),
