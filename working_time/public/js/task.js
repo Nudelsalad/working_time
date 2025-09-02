@@ -30,5 +30,16 @@ frappe.ui.form.on('Task', {
         });
       }
     }, __('OpenProject'));
+
+    if (frm.doc.openproject_work_package_id && frm.doc.project) {
+      frm.add_custom_button(__('Sync this Task'), async () => {
+        await frappe.call({
+          method: 'working_time.openproject_sync.sync_task_from_openproject',
+          args: { task_name: frm.doc.name },
+          freeze: true,
+        });
+        frm.reload_doc();
+      }, __('OpenProject'));
+    }
   },
 });

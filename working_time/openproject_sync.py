@@ -381,6 +381,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 'exp_start_date': fields['exp_start_date'],
                 'exp_end_date': fields['exp_end_date'],
                 'openproject_work_package_url_task': fields['openproject_work_package_url_task'],
+                'openproject_last_synced_at': get_datetime(),
             })
             updated_tasks += 1
             task_map[str(wp_id)] = existing
@@ -388,6 +389,10 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             doc = frappe.get_doc(fields)
             doc.flags.ignore_permissions = True
             doc.insert()
+            try:
+                frappe.db.set_value('Task', doc.name, 'openproject_last_synced_at', get_datetime())
+            except Exception:
+                pass
             created_tasks += 1
             task_map[str(wp_id)] = doc.name
 
@@ -515,3 +520,53 @@ def sync_all_projects_from_openproject():
             sync_project_from_openproject(p.name)
         except Exception as e:
             frappe.log_error(frappe.get_traceback(), f"OpenProject sync failed for Project {p.name}")
+
+
+@frappe.whitelist()
+def enqueue_sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
+    """Enqueue the project sync to avoid blocking the UI."""
+    frappe.enqueue(
+        'working_time.working_time.openproject_sync.sync_project_from_openproject',
+        project_name=project_name,
+        queue='long'
+    )
+    return { 'queued': True }
+
+
+@frappe.whitelist()
+def sync_task_from_openproject(task_name: str) -> Dict[str, Any]:
+    """Refresh a single Task from its OpenProject work package."""
+    task = frappe.get_doc('Task', task_name)
+    project_name = task.project
+    wp_id = task.get('openproject_work_package_id')
+    if not project_name or not wp_id:
+        frappe.throw(_('Task must have Project and OpenProject Work Package ID'))
+    site, _ = _project_settings(project_name)
+    client = _client(site)
+    wp = client.get(f"{client.url}/api/v3/work_packages/{wp_id}")
+    fields = _work_package_to_task_fields(project_name, site, wp)
+    # Update selective fields
+    frappe.db.set_value('Task', task.name, {
+        'subject': fields['subject'],
+        'status': fields['status'],
+        'priority': fields['priority'],
+        'description': fields['description'],
+        'exp_start_date': fields['exp_start_date'],
+        'exp_end_date': fields['exp_end_date'],
+        'openproject_work_package_url_task': fields['openproject_work_package_url_task'],
+        'openproject_last_synced_at': get_datetime(),
+    })
+    return { 'updated': True }
+
+
+@frappe.whitelist()
+def validate_openproject_mapping(project_name: str) -> Dict[str, Any]:
+    """Quick check that site/token and project mapping work."""
+    site, op_project_id = _project_settings(project_name)
+    client = _client(site)
+    data = client.get(f"{client.url}/api/v3/projects/{op_project_id}")
+    return {
+        'id': data.get('id'),
+        'name': data.get('name'),
+        'identifier': data.get('identifier'),
+    }

@@ -1,17 +1,34 @@
 frappe.ui.form.on('Project', {
   refresh(frm) {
     if (!frm.is_new() && frm.doc.openproject_site && frm.doc.openproject_project_id) {
-      frm.add_custom_button('Sync from OpenProject', async () => {
+      frm.add_custom_button(__('Sync now'), async () => {
         await frappe.call({
           method: 'working_time.openproject_sync.sync_project_from_openproject',
-          args: {
-            project_name: frm.doc.name,
-          },
+          args: { project_name: frm.doc.name },
           freeze: true,
           freeze_message: __('Syncing from OpenProject...'),
         });
         frm.reload_doc();
-      }).addClass('btn-primary');
+      }, __('OpenProject'));
+
+      frm.add_custom_button(__('Enqueue sync'), async () => {
+        await frappe.call({
+          method: 'working_time.openproject_sync.enqueue_sync_project_from_openproject',
+          args: { project_name: frm.doc.name },
+          freeze: true,
+          freeze_message: __('Queued sync job...'),
+        });
+      }, __('OpenProject'));
+
+      frm.add_custom_button(__('Validate mapping'), async () => {
+        const r = await frappe.call({
+          method: 'working_time.openproject_sync.validate_openproject_mapping',
+          args: { project_name: frm.doc.name },
+          freeze: true,
+        });
+        const m = r && r.message;
+        frappe.msgprint(__('Project OK: #{0} {1} ({2})', [m.id, m.name, m.identifier]));
+      }, __('OpenProject'));
     }
 
     // Helper: Find and set OpenProject Project without needing numeric ID
