@@ -115,14 +115,21 @@ def _iter_paginated(client: OpenProjectClient, url: str, params: Dict[str, Any])
             break
         page += 1
 
-def _build_project_filter(op_project_id: str, use_href: bool = True, field: str = 'project') -> Dict[str, Any]:
+def _build_project_filter(op_project_id: str, use_href: bool = True, field: str = 'project', numeric_value: bool = False) -> Dict[str, Any]:
     """Build OpenProject API filter for a project.
 
     - field: either 'project' (expects href) or 'project_id' (expects numeric string)
     - use_href: when True, build '/api/v3/projects/<id>'
     Some OP installations require href values, others accept numeric IDs under 'project_id'.
     """
-    value = f"/api/v3/projects/{op_project_id}" if use_href else str(op_project_id)
+    if use_href:
+        value: Any = f"/api/v3/projects/{op_project_id}"
+    else:
+        # Allow sending a true integer in JSON when required by some servers
+        if numeric_value and str(op_project_id).isdigit():
+            value = int(op_project_id)
+        else:
+            value = str(op_project_id)
     return {
         'filters': json.dumps([
             {
@@ -414,21 +421,23 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
 
     # 2) Time entries -> Timesheet rows
     te_url = f"{client.url}/api/v3/time_entries"
+    # Prefer integer-valued 'project' for time entries on servers that require it,
+    # then try 'project_id', and finally project href.
     te_filter_strategies = [
         {
             'sortBy': json.dumps([["spent_on", "asc"]]),
             'pageSize': 100,
+            **_build_project_filter(numeric_pid, use_href=False, field='project', numeric_value=True),
+        },
+        {
+            'sortBy': json.dumps([["spent_on", "asc"]]),
+            'pageSize': 100,
+            **_build_project_filter(numeric_pid, use_href=False, field='project_id', numeric_value=True),
+        },
+        {
+            'sortBy': json.dumps([["spent_on", "asc"]]),
+            'pageSize': 100,
             **_build_project_filter(numeric_pid, use_href=True, field='project'),
-        },
-        {
-            'sortBy': json.dumps([["spent_on", "asc"]]),
-            'pageSize': 100,
-            **_build_project_filter(numeric_pid, use_href=False, field='project'),
-        },
-        {
-            'sortBy': json.dumps([["spent_on", "asc"]]),
-            'pageSize': 100,
-            **_build_project_filter(numeric_pid, use_href=False, field='project_id'),
         },
     ]
     def _sync_wps(filters: Dict[str, Any]):
@@ -463,10 +472,12 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 task_map[str(wp_id)] = doc.name
 
     # Try multiple filter strategies
+    # Prefer integer-valued filters for servers enforcing integer types
     wp_filter_strategies = [
+        _build_project_filter(numeric_pid, use_href=False, field='project', numeric_value=True),
+        _build_project_filter(numeric_pid, use_href=False, field='project_id', numeric_value=True),
         _build_project_filter(numeric_pid, use_href=True, field='project'),
         _build_project_filter(numeric_pid, use_href=False, field='project'),
-        _build_project_filter(numeric_pid, use_href=False, field='project_id'),
     ]
     last_wp_error = None
     for filt in wp_filter_strategies:
@@ -476,7 +487,13 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             break
         except Exception as e:
             last_wp_error = e
-            if 'Project filter has invalid values' in str(e) or 'Invalid query' in str(e):
+            msg = str(e)
+            if (
+                'Project filter has invalid values' in msg
+                or 'Invalid query' in msg
+                or 'is not an integer' in msg
+                or 'not an integer' in msg
+            ):
                 continue
             raise
     if last_wp_error:
@@ -579,7 +596,14 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             break
         except Exception as e:
             last_te_error = e
-            if 'Project filter has invalid values' in str(e) or 'Invalid query' in str(e):
+            # Broaden fallback patterns for server-specific validation messages
+            msg = str(e)
+            if (
+                'Project filter has invalid values' in msg
+                or 'Invalid query' in msg
+                or 'is not an integer' in msg
+                or 'not an integer' in msg
+            ):
                 continue
             raise
     if last_te_error:
