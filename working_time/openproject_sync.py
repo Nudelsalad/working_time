@@ -123,6 +123,27 @@ def _extract_id_from_href(href: Optional[str]) -> Optional[str]:
     return parts[-1] if parts else None
 
 
+def _extract_identifier_from_url(text: str) -> Optional[str]:
+    """Extract OpenProject project identifier from a URL like https://host/projects/<identifier>.
+
+    Returns None if not matched.
+    """
+    try:
+        s = (text or '').strip()
+        if not s:
+            return None
+        # ensure we only look at path
+        # find '/projects/' and take the following segment
+        marker = '/projects/'
+        if marker not in s:
+            return None
+        after = s.split(marker, 1)[1]
+        ident = after.split('/', 1)[0]
+        return ident or None
+    except Exception:
+        return None
+
+
 def _map_priority(op_title: Optional[str]) -> str:
     """Map OpenProject priority title to ERPNext Task.priority options.
 
@@ -236,6 +257,87 @@ def _find_existing_task(project: str, wp_id: int | str) -> Optional[str]:
         'project': project,
         'openproject_work_package_id': str(wp_id),
     }, 'name')
+
+
+@frappe.whitelist()
+def search_openproject_projects(site: str, q: str | None = None, limit: int = 100) -> Dict[str, Any]:
+    """Search or resolve OpenProject Projects.
+
+    Accepts:
+    - full project URL (extracts identifier)
+    - identifier (slug)
+    - numeric id
+    - free text (matches name/identifier contains, client-side on first page)
+
+    Returns: { results: [ { id, name, identifier, label } ] }
+    """
+    client = _client(site)
+    q = (q or '').strip()
+
+    # 1) Try resolve by URL identifier
+    identifier = _extract_identifier_from_url(q) if q else None
+    if identifier:
+        try:
+            data = client.get(f"{client.url}/api/v3/projects/{identifier}")
+            if data:
+                return {
+                    'results': [{
+                        'id': str(data.get('id')),
+                        'name': data.get('name'),
+                        'identifier': data.get('identifier'),
+                        'label': f"{data.get('name')} ({data.get('identifier')}) [#" + str(data.get('id')) + "]",
+                    }]
+                }
+        except Exception:
+            pass
+
+    # 2) Try resolve by numeric id directly
+    if q and q.isdigit():
+        try:
+            data = client.get(f"{client.url}/api/v3/projects/{q}")
+            if data:
+                return {
+                    'results': [{
+                        'id': str(data.get('id')),
+                        'name': data.get('name'),
+                        'identifier': data.get('identifier'),
+                        'label': f"{data.get('name')} ({data.get('identifier')}) [#" + str(data.get('id')) + "]",
+                    }]
+                }
+        except Exception:
+            pass
+
+    # 3) Fallback: fetch first page and filter client-side by substring
+    try:
+        url = f"{client.url}/api/v3/projects"
+        params = { 'pageSize': max(1, min(int(limit or 50), 200)) }
+        data = client.get(url, params=params)
+        elements = ((data.get('_embedded') or {}).get('elements')) or []
+        results = []
+        ql = q.lower() if q else ''
+        for p in elements:
+            pid = str(p.get('id')) if p.get('id') is not None else None
+            name = p.get('name')
+            ident = p.get('identifier') or (
+                ((p.get('_links') or {}).get('self') or {}).get('href') or ''
+            ).rstrip('/').split('/')[-1]
+            if ql:
+                text = f"{name} {ident} {pid}".lower()
+                if ql not in text:
+                    continue
+            if pid:
+                results.append({
+                    'id': pid,
+                    'name': name,
+                    'identifier': ident,
+                    'label': f"{name} ({ident}) [#" + pid + "]",
+                })
+            if len(results) >= params['pageSize']:
+                break
+        return { 'results': results }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), 'OpenProject project search failed')
+        return { 'results': [] }
 
 
 @frappe.whitelist()
