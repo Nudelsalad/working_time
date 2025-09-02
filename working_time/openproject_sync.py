@@ -454,93 +454,88 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
     created_ts_details = 0
     updated_ts_details = 0
     # No cache: do direct lookup for simplicity
-
-    for te in _iter_paginated(client, te_url, te_filters):
     def _sync_tes(filters: Dict[str, Any]):
         nonlocal created_ts_details, updated_ts_details, task_map
         for te in _iter_paginated(client, te_url, filters):
-        te_id = te.get('id')
-        # If already imported, update the row if changed
-        existing_ts_detail_name = frappe.db.exists('Timesheet Detail', {
-            'openproject_time_entry_id': str(te_id)
-        })
+            te_id = te.get('id')
+            # If already imported, update the row if changed
+            existing_ts_detail_name = frappe.db.exists('Timesheet Detail', {
+                'openproject_time_entry_id': str(te_id)
+            })
 
-        spent_on = te.get('spentOn')  # yyyy-mm-dd
-        hours = _parse_iso8601_duration_to_hours(te.get('hours'))
-        comments = (te.get('comment') or {}).get('raw', '')
-        activity = 'Default'
-        # On-site flag from OpenProject custom field; don't change Activity Type, only store flags
-        on_site_flag = bool(te.get('customField1'))
-        wp_link = ((te.get('_links') or {}).get('workPackage') or {}).get('href')
-        wp_id = None
-        if wp_link and wp_link.rstrip('/').split('/')[-2] == 'work_packages':
-            wp_id = wp_link.rstrip('/').split('/')[-1]
-        task_name = task_map.get(str(wp_id)) if wp_id else None
+            spent_on = te.get('spentOn')  # yyyy-mm-dd
+            hours = _parse_iso8601_duration_to_hours(te.get('hours'))
+            comments = (te.get('comment') or {}).get('raw', '')
+            activity = 'Default'
+            # On-site flag from OpenProject custom field; don't change Activity Type, only store flags
+            on_site_flag = bool(te.get('customField1'))
+            wp_link = ((te.get('_links') or {}).get('workPackage') or {}).get('href')
+            wp_id = None
+            if wp_link and wp_link.rstrip('/').split('/')[-2] == 'work_packages':
+                wp_id = wp_link.rstrip('/').split('/')[-1]
+            task_name = task_map.get(str(wp_id)) if wp_id else None
 
-        if existing_ts_detail_name:
-            ts_detail = frappe.get_doc('Timesheet Detail', existing_ts_detail_name)
-            changed = False
-            if abs((ts_detail.hours or 0) - hours) > 1e-6:
-                ts_detail.hours = hours
-                changed = True
-            if (ts_detail.description or '') != (comments or ''):
-                ts_detail.description = comments
-                changed = True
-            if (ts_detail.activity_type or '') != activity:
-                ts_detail.activity_type = activity
-                changed = True
-            if (ts_detail.task or '') != (task_name or ''):
-                ts_detail.task = task_name
-                changed = True
-            new_wp_url = get_openproject_work_package_url(site, wp_id) if wp_id else None
-            if (ts_detail.openproject_work_package_url or '') != (new_wp_url or ''):
-                ts_detail.openproject_work_package_url = new_wp_url
-                changed = True
-            # Update on-site flag from OP customField1
-            if int(ts_detail.get('technician_on_site') or 0) != int(on_site_flag):
-                ts_detail.technician_on_site = on_site_flag
-                changed = True
-            if changed:
-                # Save through parent to recalc
-                parent = frappe.get_doc('Timesheet', ts_detail.parent)
-                # Set parent checkbox based on entry
-                try:
-                    parent.technician_on_site = on_site_flag
-                except Exception:
-                    pass
-                parent.flags.ignore_permissions = True
-                parent.save()
-                updated_ts_details += 1
-            continue
+            if existing_ts_detail_name:
+                ts_detail = frappe.get_doc('Timesheet Detail', existing_ts_detail_name)
+                changed = False
+                if abs((ts_detail.hours or 0) - hours) > 1e-6:
+                    ts_detail.hours = hours
+                    changed = True
+                if (ts_detail.description or '') != (comments or ''):
+                    ts_detail.description = comments
+                    changed = True
+                if (ts_detail.activity_type or '') != activity:
+                    ts_detail.activity_type = activity
+                    changed = True
+                if (ts_detail.task or '') != (task_name or ''):
+                    ts_detail.task = task_name
+                    changed = True
+                new_wp_url = get_openproject_work_package_url(site, wp_id) if wp_id else None
+                if (ts_detail.openproject_work_package_url or '') != (new_wp_url or ''):
+                    ts_detail.openproject_work_package_url = new_wp_url
+                    changed = True
+                # Update on-site flag from OP customField1
+                if int(ts_detail.get('technician_on_site') or 0) != int(on_site_flag):
+                    ts_detail.technician_on_site = on_site_flag
+                    changed = True
+                if changed:
+                    # Save through parent to recalc
+                    parent = frappe.get_doc('Timesheet', ts_detail.parent)
+                    # Set parent checkbox based on entry
+                    try:
+                        parent.technician_on_site = on_site_flag
+                    except Exception:
+                        pass
+                    parent.flags.ignore_permissions = True
+                    parent.save()
+                    updated_ts_details += 1
+                continue
 
-        # Determine employee for new entries: map OP user -> Employee by email/login
-        employee = _get_employee_for_op_user(client, te)
-        if not employee:
-            # Skip creating without an employee mapping
-            continue
+            # Determine employee for new entries: map OP user -> Employee by email/login
+            employee = _get_employee_for_op_user(client, te)
+            if not employee:
+                # Skip creating without an employee mapping
+                continue
 
-        ts = frappe.get_doc({
-            'doctype': 'Timesheet',
-            'employee': employee,
-            'project': project_name,
-            'technician_on_site': on_site_flag,
-            'time_logs': [
-                {
-                    'activity_type': activity,
-                    'from_time': f"{spent_on} 00:00:00",
-                    'hours': hours,
-                    'task': task_name,
-                    'description': comments,
-                    'openproject_time_entry_id': str(te_id),
-                    'openproject_time_entry_url': f"{client.url}/time_entries/{te_id}",
-                    'openproject_work_package_url': get_openproject_work_package_url(site, wp_id) if wp_id else None,
-                    'technician_on_site': on_site_flag,
-                }
-            ]
-        })
-        ts.flags.ignore_permissions = True
-        ts.insert()
-        created_ts_details += 1
+            ts = frappe.get_doc({
+                'doctype': 'Timesheet',
+                'employee': employee,
+                'project': project_name,
+                'technician_on_site': on_site_flag,
+                'time_logs': [
+                    {
+                        'activity_type': activity,
+                        'from_time': f"{spent_on} 00:00:00",
+                        'hours': hours,
+                        'task': task_name,
+                        'description': comments,
+                        'openproject_time_entry_id': str(te_id),
+                        'openproject_time_entry_url': f"{client.url}/time_entries/{te_id}",
+                        'openproject_work_package_url': get_openproject_work_package_url(site, wp_id) if wp_id else None,
+                        'technician_on_site': on_site_flag,
+                    }
+                ]
+            })
             ts.flags.ignore_permissions = True
             ts.insert()
             created_ts_details += 1
