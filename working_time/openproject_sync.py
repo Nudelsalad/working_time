@@ -115,16 +115,18 @@ def _iter_paginated(client: OpenProjectClient, url: str, params: Dict[str, Any])
             break
         page += 1
 
-def _build_project_filter(op_project_id: str, use_href: bool = True) -> Dict[str, Any]:
+def _build_project_filter(op_project_id: str, use_href: bool = True, field: str = 'project') -> Dict[str, Any]:
     """Build OpenProject API filter for a project.
 
-    Some OP installations require href values, others accept numeric IDs. We prefer href.
+    - field: either 'project' (expects href) or 'project_id' (expects numeric string)
+    - use_href: when True, build '/api/v3/projects/<id>'
+    Some OP installations require href values, others accept numeric IDs under 'project_id'.
     """
     value = f"/api/v3/projects/{op_project_id}" if use_href else str(op_project_id)
     return {
         'filters': json.dumps([
             {
-                'project': {
+                field: {
                     'operator': '=',
                     'values': [value]
                 }
@@ -159,6 +161,41 @@ def _extract_identifier_from_url(text: str) -> Optional[str]:
         return ident or None
     except Exception:
         return None
+
+
+def _resolve_project_ref(client: OpenProjectClient, op_project_id: str) -> Tuple[str, str]:
+    """Resolve the given project reference (id/identifier/url/href) to (numeric_id, href).
+
+    Tries to GET /api/v3/projects/{key} where key can be numeric id or identifier.
+    Falls back to returning the original string as both id and href suffix if resolution fails.
+    """
+    raw = (op_project_id or '').strip()
+    key = raw
+    # Accept full UI URL or API href
+    try:
+        if raw.startswith('http'):
+            ident = _extract_identifier_from_url(raw)
+            if ident:
+                key = ident
+            else:
+                # try API path
+                if '/api/v3/projects/' in raw:
+                    key = raw.rstrip('/').split('/')[-1]
+        elif raw.startswith('/'):
+            if '/api/v3/projects/' in raw:
+                key = raw.rstrip('/').split('/')[-1]
+            elif '/projects/' in raw:
+                key = raw.rstrip('/').split('/')[-1]
+        # Now fetch project to canonicalize to numeric id
+        data = client.get(f"{client.url}/api/v3/projects/{key}")
+        pid = str(data.get('id')) if data and data.get('id') is not None else key
+        href = f"/api/v3/projects/{pid}"
+        return pid, href
+    except Exception:
+        # Fallback: best-effort
+        pid = key
+        href = f"/api/v3/projects/{key}"
+        return pid, href
 
 
 def _map_priority(op_title: Optional[str]) -> str:
@@ -366,51 +403,34 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
     """
     site, op_project_id = _project_settings(project_name)
     client = _client(site)
+    # Normalize project reference to numeric id and href
+    numeric_pid, project_href = _resolve_project_ref(client, str(op_project_id))
 
     # 1) Work packages -> Tasks
     wp_url = f"{client.url}/api/v3/work_packages"
-    wp_filters = _build_project_filter(str(op_project_id), use_href=True)
-
     created_tasks = 0
     updated_tasks = 0
     task_map: Dict[str, str] = {}
 
-    for wp in _iter_paginated(client, wp_url, wp_filters):
-        wp_id = wp.get('id')
-        existing = _find_existing_task(project_name, wp_id)
-        fields = _work_package_to_task_fields(project_name, site, wp)
-        if existing:
-            # Update selected fields only
-            frappe.db.set_value('Task', existing, {
-                'subject': fields['subject'],
-                'status': fields['status'],
-                'priority': fields['priority'],
-                'description': fields['description'],
-                'exp_start_date': fields['exp_start_date'],
-                'exp_end_date': fields['exp_end_date'],
-                'openproject_work_package_url_task': fields['openproject_work_package_url_task'],
-                'openproject_last_synced_at': get_datetime(),
-            })
-            updated_tasks += 1
-            task_map[str(wp_id)] = existing
-        else:
-            doc = frappe.get_doc(fields)
-            doc.flags.ignore_permissions = True
-            doc.insert()
-            try:
-                frappe.db.set_value('Task', doc.name, 'openproject_last_synced_at', get_datetime())
-            except Exception:
-                pass
-            created_tasks += 1
-            task_map[str(wp_id)] = doc.name
-
     # 2) Time entries -> Timesheet rows
     te_url = f"{client.url}/api/v3/time_entries"
-    te_filters = {
-        'sortBy': json.dumps([["spent_on", "asc"]]),
-        'pageSize': 100,
-        **_build_project_filter(str(op_project_id), use_href=True),
-    }
+    te_filter_strategies = [
+        {
+            'sortBy': json.dumps([["spent_on", "asc"]]),
+            'pageSize': 100,
+            **_build_project_filter(numeric_pid, use_href=True, field='project'),
+        },
+        {
+            'sortBy': json.dumps([["spent_on", "asc"]]),
+            'pageSize': 100,
+            **_build_project_filter(numeric_pid, use_href=False, field='project'),
+        },
+        {
+            'sortBy': json.dumps([["spent_on", "asc"]]),
+            'pageSize': 100,
+            **_build_project_filter(numeric_pid, use_href=False, field='project_id'),
+        },
+    ]
     def _sync_wps(filters: Dict[str, Any]):
         nonlocal created_tasks, updated_tasks, task_map
         for wp in _iter_paginated(client, wp_url, filters):
@@ -442,14 +462,25 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 created_tasks += 1
                 task_map[str(wp_id)] = doc.name
 
-    try:
-        _sync_wps(wp_filters)
-    except Exception as e:
-        # Fallback for servers that expect numeric ID in project filter
-        if 'Project filter has invalid values' in str(e):
-            _sync_wps(_build_project_filter(str(op_project_id), use_href=False))
-        else:
+    # Try multiple filter strategies
+    wp_filter_strategies = [
+        _build_project_filter(numeric_pid, use_href=True, field='project'),
+        _build_project_filter(numeric_pid, use_href=False, field='project'),
+        _build_project_filter(numeric_pid, use_href=False, field='project_id'),
+    ]
+    last_wp_error = None
+    for filt in wp_filter_strategies:
+        try:
+            _sync_wps(filt)
+            last_wp_error = None
+            break
+        except Exception as e:
+            last_wp_error = e
+            if 'Project filter has invalid values' in str(e) or 'Invalid query' in str(e):
+                continue
             raise
+    if last_wp_error:
+        raise last_wp_error
 
     created_ts_details = 0
     updated_ts_details = 0
@@ -540,17 +571,19 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             ts.insert()
             created_ts_details += 1
 
-    try:
-        _sync_tes(te_filters)
-    except Exception as e:
-        if 'Project filter has invalid values' in str(e):
-            _sync_tes({
-                'sortBy': json.dumps([["spent_on", "asc"]]),
-                'pageSize': 100,
-                **_build_project_filter(str(op_project_id), use_href=False),
-            })
-        else:
+    last_te_error = None
+    for te_filters in te_filter_strategies:
+        try:
+            _sync_tes(te_filters)
+            last_te_error = None
+            break
+        except Exception as e:
+            last_te_error = e
+            if 'Project filter has invalid values' in str(e) or 'Invalid query' in str(e):
+                continue
             raise
+    if last_te_error:
+        raise last_te_error
 
     frappe.db.set_value('Project', project_name, 'openproject_last_synced_at', get_datetime())
 
