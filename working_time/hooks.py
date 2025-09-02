@@ -285,6 +285,14 @@ working_time_custom_fields = {
 			"read_only": 1,
 			"translatable": 0,
 		},
+		{
+			"fieldname": "openproject_last_synced_at",
+			"label": "OpenProject Last Synced At",
+			"fieldtype": "Datetime",
+			"insert_after": "openproject_work_package_url_task",
+			"read_only": 1,
+			"translatable": 0,
+		},
 	],
 	"Timesheet": [
 		{

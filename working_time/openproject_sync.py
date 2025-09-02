@@ -447,8 +447,8 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             existing = _find_existing_task(project_name, wp_id)
             fields = _work_package_to_task_fields(project_name, site, wp)
             if existing:
-                # Update selected fields only
-                frappe.db.set_value('Task', existing, {
+                # Update selected fields only (guard optional custom fields)
+                values = {
                     'subject': fields['subject'],
                     'status': fields['status'],
                     'priority': fields['priority'],
@@ -456,8 +456,18 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                     'exp_start_date': fields['exp_start_date'],
                     'exp_end_date': fields['exp_end_date'],
                     'openproject_work_package_url_task': fields['openproject_work_package_url_task'],
-                    'openproject_last_synced_at': get_datetime(),
-                })
+                }
+                try:
+                    values['openproject_last_synced_at'] = get_datetime()
+                except Exception:
+                    pass
+                try:
+                    frappe.db.set_value('Task', existing, values)
+                except Exception:
+                    # Retry without optional fields in case of missing columns
+                    values.pop('openproject_work_package_url_task', None)
+                    values.pop('openproject_last_synced_at', None)
+                    frappe.db.set_value('Task', existing, values)
                 updated_tasks += 1
                 task_map[str(wp_id)] = existing
             else:
@@ -609,7 +619,10 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
     if last_te_error:
         raise last_te_error
 
-    frappe.db.set_value('Project', project_name, 'openproject_last_synced_at', get_datetime())
+    try:
+        frappe.db.set_value('Project', project_name, 'openproject_last_synced_at', get_datetime())
+    except Exception:
+        pass
 
     return {
         'created_tasks': created_tasks,
@@ -656,7 +669,7 @@ def sync_task_from_openproject(task_name: str) -> Dict[str, Any]:
     wp = client.get(f"{client.url}/api/v3/work_packages/{wp_id}")
     fields = _work_package_to_task_fields(project_name, site, wp)
     # Update selective fields
-    frappe.db.set_value('Task', task.name, {
+    values = {
         'subject': fields['subject'],
         'status': fields['status'],
         'priority': fields['priority'],
@@ -664,8 +677,17 @@ def sync_task_from_openproject(task_name: str) -> Dict[str, Any]:
         'exp_start_date': fields['exp_start_date'],
         'exp_end_date': fields['exp_end_date'],
         'openproject_work_package_url_task': fields['openproject_work_package_url_task'],
-        'openproject_last_synced_at': get_datetime(),
-    })
+    }
+    try:
+        values['openproject_last_synced_at'] = get_datetime()
+    except Exception:
+        pass
+    try:
+        frappe.db.set_value('Task', task.name, values)
+    except Exception:
+        values.pop('openproject_work_package_url_task', None)
+        values.pop('openproject_last_synced_at', None)
+        frappe.db.set_value('Task', task.name, values)
     return { 'updated': True }
 
 
