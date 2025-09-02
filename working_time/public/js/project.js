@@ -11,14 +11,6 @@ frappe.ui.form.on('Project', {
         frm.reload_doc();
       }, __('OpenProject'));
 
-      frm.add_custom_button(__('Enqueue sync'), async () => {
-        await frappe.call({
-          method: 'working_time.openproject_sync.enqueue_sync_project_from_openproject',
-          args: { project_name: frm.doc.name },
-          freeze: true,
-          freeze_message: __('Queued sync job...'),
-        });
-      }, __('OpenProject'));
 
       frm.add_custom_button(__('Validate mapping'), async () => {
         const r = await frappe.call({

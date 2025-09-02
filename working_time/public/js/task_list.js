@@ -1,14 +1,19 @@
 frappe.listview_settings['Task'] = {
   onload(listview) {
     listview.page.add_inner_button(__('Sync from OpenProject'), async () => {
-      const selected = listview.get_checked_items();
-      let project = null;
-      if (selected && selected.length) {
-        try {
-          const r = await frappe.db.get_value('Task', selected[0].name, 'project');
-          project = r && r.message && r.message.project;
-        } catch (e) {
-          // ignore
+      // Prefer project from URL filter (?project=...) when viewing tasks under a Project
+      const urlProject = new URLSearchParams(window.location.search).get('project');
+      let project = urlProject || null;
+      // If no URL project, try selected row’s project
+      if (!project) {
+        const selected = listview.get_checked_items();
+        if (selected && selected.length) {
+          try {
+            const r = await frappe.db.get_value('Task', selected[0].name, 'project');
+            project = r && r.message && r.message.project;
+          } catch (e) {
+            // ignore
+          }
         }
       }
       const do_sync = (proj) => {
@@ -19,7 +24,7 @@ frappe.listview_settings['Task'] = {
           freeze: true,
         }).then(() => listview.refresh());
       };
-      if (!project) {
+  if (!project) {
         const d = new frappe.ui.Dialog({
           title: __('Sync from OpenProject'),
           fields: [
