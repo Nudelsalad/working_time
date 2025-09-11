@@ -78,6 +78,26 @@ def _parse_iso8601_duration_to_hours(value: str | float | int | None) -> float:
     return days * 24.0 + hours + minutes / 60.0 + seconds / 3600.0
 
 
+def _parse_op_datetime(value: str | None) -> Optional[str]:
+    """Parse OpenProject ISO8601 datetime (with trailing Z) into string acceptable by ERPNext.
+
+    Returns an ISO-like 'YYYY-MM-DD HH:MM:SS' in system time (assuming given value is UTC).
+    If parsing fails returns None.
+    Note: We treat the incoming timestamp as UTC and store naive server time; if you need
+    timezone-accurate handling later, adjust to convert to user timezone.
+    """
+    if not value:
+        return None
+    try:
+        # Replace Z with +00:00 for fromisoformat
+        v = value.replace('Z', '+00:00')
+        dt = datetime.fromisoformat(v)
+        # Convert to string (drop tzinfo to keep consistency with existing naive datetimes)
+        return dt.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return None
+
+
 def _project_settings(project: str) -> Tuple[str, str]:
     site, op_project_id = frappe.get_value(
         'Project', project, ['openproject_site', 'openproject_project_id']
@@ -409,6 +429,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
     - Creates Timesheets from time entries (if not already mirrored), linked to Task when possible.
     """
     site, op_project_id = _project_settings(project_name)
+    phase_wp_id = frappe.db.get_value('Project', project_name, 'openproject_phase_work_package_id')
     client = _client(site)
     # Normalize project reference to numeric id and href
     numeric_pid, project_href = _resolve_project_ref(client, str(op_project_id))
@@ -440,9 +461,70 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             **_build_project_filter(numeric_pid, use_href=True, field='project'),
         },
     ]
+    phase_descendant_ids: set[str] | None = None
+    phase_wp_id_str = str(phase_wp_id).strip() if phase_wp_id else None
+
+    def _collect_phase_descendants(all_wps: Dict[str, Dict[str, Any]]):
+        """Build set of descendant WP IDs (strings) of the given phase work package id, including itself.
+
+        We rely on each WP's _links.parent.href chain. We'll iterate until no new additions.
+        """
+        nonlocal phase_descendant_ids
+        if not phase_wp_id_str:
+            return
+        # Seed with the phase itself if present
+        phase_descendant_ids = set()
+        if phase_wp_id_str in all_wps:
+            phase_descendant_ids.add(phase_wp_id_str)
+        # Include any WP that has an ancestor chain including the phase
+        for wp_id, wp in all_wps.items():
+            if wp_id in phase_descendant_ids:
+                continue
+            ancestors = []
+            embedded = (wp.get('_embedded') or {})
+            # Try ancestors array if available
+            anc_list = embedded.get('ancestors') or []
+            for anc in anc_list:
+                a_id = str(anc.get('id')) if anc.get('id') is not None else None
+                if a_id:
+                    ancestors.append(a_id)
+            # Fallback: follow parent link chain
+            current = wp
+            safeguard = 0
+            while safeguard < 10 and not ancestors:
+                parent_link = ((current.get('_links') or {}).get('parent') or {}).get('href')
+                if not parent_link:
+                    break
+                p_id = _extract_id_from_href(parent_link)
+                if not p_id:
+                    break
+                ancestors.append(p_id)
+                if p_id in all_wps:
+                    current = all_wps[p_id]
+                else:
+                    break
+                safeguard += 1
+            if phase_wp_id_str in ancestors:
+                phase_descendant_ids.add(wp_id)
+
+    # Temp storage to possibly post-filter for phase
+    collected_wps: Dict[str, Dict[str, Any]] = {}
+
     def _sync_wps(filters: Dict[str, Any]):
         nonlocal created_tasks, updated_tasks, task_map
         for wp in _iter_paginated(client, wp_url, filters):
+            wp_id = wp.get('id')
+            if wp_id is None:
+                continue
+            wp_id_str = str(wp_id)
+            collected_wps[wp_id_str] = wp
+        # If we have phase filter requested, build descendant set after first successful fetch
+        if phase_wp_id_str and phase_descendant_ids is None:
+            _collect_phase_descendants(collected_wps)
+        # Now iterate over (possibly filtered) WPs for task sync
+        for wp_id_str, wp in list(collected_wps.items()):
+            if phase_wp_id_str and phase_descendant_ids is not None and wp_id_str not in phase_descendant_ids:
+                continue
             wp_id = wp.get('id')
             existing = _find_existing_task(project_name, wp_id)
             fields = _work_package_to_task_fields(project_name, site, wp)
@@ -527,12 +609,29 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             activity = 'Default'
             # On-site flag from OpenProject custom field; don't change Activity Type, only store flags
             on_site_flag = bool(te.get('customField1'))
+            start_time_raw = te.get('startTime')
+            end_time_raw = te.get('endTime')
+            start_time = _parse_op_datetime(start_time_raw)
+            end_time = _parse_op_datetime(end_time_raw)
+            # Fallback compute end_time from hours if start only
+            if start_time and not end_time and hours:
+                try:
+                    dt_start = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    delta_seconds = int(hours * 3600)
+                    dt_end = dt_start + frappe.utils.time_delta(seconds=delta_seconds)
+                    end_time = dt_end.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    pass
             wp_link = ((te.get('_links') or {}).get('workPackage') or {}).get('href')
             wp_id = None
             if wp_link and wp_link.rstrip('/').split('/')[-2] == 'work_packages':
                 wp_id = wp_link.rstrip('/').split('/')[-1]
             task_name = task_map.get(str(wp_id)) if wp_id else None
 
+            # If restricted to phase descendants we must ensure WP belongs
+            if phase_wp_id_str and phase_descendant_ids is not None:
+                if wp_id and str(wp_id) not in phase_descendant_ids:
+                    continue
             if existing_ts_detail_name:
                 ts_detail = frappe.get_doc('Timesheet Detail', existing_ts_detail_name)
                 changed = False
@@ -556,6 +655,25 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 if int(ts_detail.get('technician_on_site') or 0) != int(on_site_flag):
                     ts_detail.technician_on_site = on_site_flag
                     changed = True
+                # Start / end time updates
+                # Only update if OpenProject provides them
+                if start_time and (ts_detail.from_time or '').split('.')[0] != start_time:
+                    ts_detail.from_time = start_time
+                    changed = True
+                if end_time:
+                    # Ensure to_time exists; compute if not provided
+                    if (ts_detail.to_time or '').split('.')[0] != end_time:
+                        ts_detail.to_time = end_time
+                        # Recalculate hours if both times available
+                        try:
+                            dt_from = datetime.strptime(ts_detail.from_time, '%Y-%m-%d %H:%M:%S') if ts_detail.from_time else None
+                            dt_to = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                            if dt_from:
+                                diff_hours = (dt_to - dt_from).total_seconds() / 3600.0
+                                if abs(diff_hours - ts_detail.hours) > 1e-4:
+                                    ts_detail.hours = diff_hours
+                        except Exception:
+                            pass
                 if changed:
                     # Save through parent to recalc
                     parent = frappe.get_doc('Timesheet', ts_detail.parent)
@@ -575,24 +693,46 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 # Skip creating without an employee mapping
                 continue
 
+            from_time = start_time or f"{spent_on} 00:00:00"
+            to_time = end_time
+            # If both present and mismatch with provided hours, prefer explicit hours for now
+            if start_time and end_time:
+                try:
+                    dt_s = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    dt_e = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                    computed = (dt_e - dt_s).total_seconds() / 3600.0
+                    if computed > 0 and abs(computed - hours) > 1e-4:
+                        # Keep hours but accept times; optionally could align hours=computed
+                        pass
+                except Exception:
+                    pass
+            elif start_time and not end_time and hours:
+                try:
+                    dt_s = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    dt_e = dt_s + frappe.utils.time_delta(hours=hours)
+                    to_time = dt_e.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    pass
+
+            time_log = {
+                'activity_type': activity,
+                'from_time': from_time,
+                'hours': hours,
+                'task': task_name,
+                'description': comments,
+                'openproject_time_entry_id': str(te_id),
+                'openproject_time_entry_url': f"{client.url}/time_entries/{te_id}",
+                'openproject_work_package_url': get_openproject_work_package_url(site, wp_id) if wp_id else None,
+                'technician_on_site': on_site_flag,
+            }
+            if to_time:
+                time_log['to_time'] = to_time
             ts = frappe.get_doc({
                 'doctype': 'Timesheet',
                 'employee': employee,
                 'project': project_name,
                 'technician_on_site': on_site_flag,
-                'time_logs': [
-                    {
-                        'activity_type': activity,
-                        'from_time': f"{spent_on} 00:00:00",
-                        'hours': hours,
-                        'task': task_name,
-                        'description': comments,
-                        'openproject_time_entry_id': str(te_id),
-                        'openproject_time_entry_url': f"{client.url}/time_entries/{te_id}",
-                        'openproject_work_package_url': get_openproject_work_package_url(site, wp_id) if wp_id else None,
-                        'technician_on_site': on_site_flag,
-                    }
-                ]
+                'time_logs': [time_log]
             })
             ts.flags.ignore_permissions = True
             ts.insert()
