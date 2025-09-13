@@ -21,10 +21,31 @@ class WorkingTimeLog(Document):
 
 	def ensure_timedelta(self):
 		if isinstance(self.from_time, str):
-			self.from_time = to_timedelta(self.from_time) if self.from_time else None
+			self.from_time = self._parse_time_string(self.from_time)
 
 		if isinstance(self.to_time, str):
-			self.to_time = to_timedelta(self.to_time) if self.to_time else None
+			self.to_time = self._parse_time_string(self.to_time)
+
+	def _parse_time_string(self, time_str):
+		"""Parse time string that could be either 'HH:MM:SS' or 'YYYY-MM-DD HH:MM:SS' format."""
+		if not time_str:
+			return None
+		
+		try:
+			# If the string contains a space, it's a full datetime string - extract the time part
+			if ' ' in time_str:
+				time_part = time_str.split(' ')[1]  # Extract 'HH:MM:SS' from 'YYYY-MM-DD HH:MM:SS'
+			else:
+				time_part = time_str
+			
+			# Use frappe's to_timedelta for the time part
+			return to_timedelta(time_part)
+		except Exception:
+			# If parsing fails, try to fall back to frappe's to_timedelta with the original string
+			try:
+				return to_timedelta(time_str)
+			except Exception:
+				return None
 
 	def remove_seconds(self):
 		if self.from_time:
