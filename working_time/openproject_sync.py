@@ -78,6 +78,35 @@ def _parse_iso8601_duration_to_hours(value: str | float | int | None) -> float:
     return days * 24.0 + hours + minutes / 60.0 + seconds / 3600.0
 
 
+def _normalize_dt_value(value: Any) -> Optional[str]:
+    """Return datetime as 'YYYY-MM-DD HH:MM:SS' string.
+
+    Accepts:
+    - None -> None
+    - datetime -> formatted string
+    - string -> trimmed to seconds if format contains fractional seconds
+    - other -> str() best-effort
+    """
+    if value is None:
+        return None
+    try:
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d %H:%M:%S')
+        if isinstance(value, str):
+            s = value.strip()
+            # Remove fractional seconds if present (e.g., '...:SS.ssssss')
+            if '.' in s:
+                s = s.split('.', 1)[0]
+            return s
+        # Fallback: try str then truncate fractional seconds if present
+        s = str(value)
+        if '.' in s:
+            s = s.split('.', 1)[0]
+        return s
+    except Exception:
+        return None
+
+
 def _parse_op_datetime(value: str | None) -> Optional[str]:
     """Parse OpenProject ISO8601 datetime (with trailing Z) into string acceptable by ERPNext.
 
@@ -661,16 +690,19 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                     changed = True
                 # Start / end time updates
                 # Only update if OpenProject provides them
-                if start_time and (ts_detail.from_time or '').split('.')[0] != start_time:
-                    ts_detail.from_time = start_time
-                    changed = True
+                if start_time:
+                    current_from = _normalize_dt_value(ts_detail.from_time)
+                    if current_from != start_time:
+                        ts_detail.from_time = start_time
+                        changed = True
                 if end_time:
                     # Ensure to_time exists; compute if not provided
-                    if (ts_detail.to_time or '').split('.')[0] != end_time:
+                    current_to = _normalize_dt_value(ts_detail.to_time)
+                    if current_to != end_time:
                         ts_detail.to_time = end_time
                         # Recalculate hours if both times available
                         try:
-                            dt_from = datetime.strptime(ts_detail.from_time, '%Y-%m-%d %H:%M:%S') if ts_detail.from_time else None
+                            dt_from = datetime.strptime(_normalize_dt_value(ts_detail.from_time) or '', '%Y-%m-%d %H:%M:%S') if ts_detail.from_time else None
                             dt_to = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
                             if dt_from:
                                 diff_hours = (dt_to - dt_from).total_seconds() / 3600.0
