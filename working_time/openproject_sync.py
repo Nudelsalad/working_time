@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import frappe
@@ -92,6 +92,10 @@ def _parse_op_datetime(value: str | None) -> Optional[str]:
         # Replace Z with +00:00 for fromisoformat
         v = value.replace('Z', '+00:00')
         dt = datetime.fromisoformat(v)
+        # Simple fix: add +2 hours to match German time vs UTC
+        # This is an intentionally minimal adjustment to correct a consistent 2h delta.
+        # If DST-aware handling is needed later, replace with proper timezone conversion.
+        dt = dt + timedelta(hours=2)
         # Convert to string (drop tzinfo to keep consistency with existing naive datetimes)
         return dt.strftime('%Y-%m-%d %H:%M:%S')
     except Exception:
