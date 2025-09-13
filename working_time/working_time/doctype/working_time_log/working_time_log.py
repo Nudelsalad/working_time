@@ -56,4 +56,11 @@ class WorkingTimeLog(Document):
 
 	def set_duration(self):
 		if self.from_time and self.to_time:
-			self.duration = (self.to_time - self.from_time).total_seconds()
+			duration_seconds = (self.to_time - self.from_time).total_seconds()
+			
+			# Handle cross-day work: if duration is negative, assume work crossed midnight
+			# and add 24 hours to get the correct duration
+			if duration_seconds < 0:
+				duration_seconds += 24 * 60 * 60  # Add 24 hours in seconds
+			
+			self.duration = duration_seconds
