@@ -3,6 +3,7 @@
 
 
 import json
+import time
 
 import frappe
 import requests
@@ -11,11 +12,20 @@ from requests.auth import HTTPBasicAuth
 
 
 class OpenProjectClient:
+	"""Thin wrapper around requests for OpenProject API v3.
+
+	Resolves the site base URL from the OpenProject Site DocType and authenticates using API token.
+	"""
+
 	def __init__(self, openproject_site: str) -> None:
 		site_doc = frappe.get_doc("OpenProject Site", openproject_site)
 
 		site_url = getattr(site_doc, "site_url", None) or site_doc.name
-		self.url = f"https://{site_url}"
+		# Allow explicit scheme in site_url; default to https
+		if site_url.startswith("http://") or site_url.startswith("https://"):
+			self.url = site_url.rstrip("/")
+		else:
+			self.url = f"https://{site_url}"
 		self.session = requests.Session()
 		# API v3 requires username to be literal 'apikey' and password = API key
 		api_key = site_doc.get_password(fieldname="api_token")
@@ -23,26 +33,51 @@ class OpenProjectClient:
 		self.session.headers = {"Accept": "application/json"}
 
 	def get(self, url: str, params=None):
-		response = self.session.get(url, params=params, verify=False)
+		# Keep verification disabled for compatibility with self-hosted instances using custom certs
+		attempts = 0
+		last_exc = None
+		while attempts < 3:
+			attempts += 1
+			response = self.session.get(url, params=params, verify=False)
+			# Retry on known transient codes
+			if response.status_code in (429, 502, 503, 504):
+				# Backoff: 0.5s, 1s, 2s
+				delay = 0.5 * (2 ** (attempts - 1))
+				time.sleep(delay)
+				continue
 
-		try:
-			response.raise_for_status()
-		except requests.HTTPError:
 			try:
-				error_text = json.loads(response.text)
-				# OpenProject API error format
-				error_message = (
-					error_text.get("message")
-					or error_text.get("errorMessage")
-					or (error_text.get("errorMessages") or [None])[0]
-					or "Something went wrong."
-				)
-			except (json.JSONDecodeError, KeyError):
-				error_message = f"HTTP {response.status_code}: {response.reason}"
+				response.raise_for_status()
+			except requests.HTTPError as e:
+				last_exc = e
+				try:
+					error_text = json.loads(response.text)
+					# OpenProject API error format
+					error_message = (
+						error_text.get("message")
+						or error_text.get("errorMessage")
+						or (error_text.get("errorMessages") or [None])[0]
+						or "Something went wrong."
+					)
+				except (json.JSONDecodeError, KeyError):
+					error_message = f"HTTP {response.status_code}: {response.reason}"
 
-			frappe.throw(f"{url}: {_(error_message)}")
+				# No retry for client errors (4xx except 429)
+				if 400 <= response.status_code < 500 and response.status_code != 429:
+					frappe.throw(f"{url}: {_(error_message)}")
+				# Otherwise, backoff and retry
+				delay = 0.5 * (2 ** (attempts - 1))
+				time.sleep(delay)
+				continue
 
-		return response.json()
+			# Success
+			return response.json()
+
+		# All attempts failed
+		if last_exc is not None:
+			raise last_exc
+		# Fallback generic error
+		frappe.throw(_("Failed to call OpenProject API"))
 
 	def get_work_package_summary(self, key: str) -> str:
 		"""Get the subject/title of an OpenProject work package by its ID."""

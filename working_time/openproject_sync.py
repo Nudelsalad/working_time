@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import frappe
@@ -121,12 +122,22 @@ def _parse_op_datetime(value: str | None) -> Optional[str]:
         # Replace Z with +00:00 for fromisoformat
         v = value.replace('Z', '+00:00')
         dt = datetime.fromisoformat(v)
-        # Simple fix: add +2 hours to match German time vs UTC
-        # This is an intentionally minimal adjustment to correct a consistent 2h delta.
-        # If DST-aware handling is needed later, replace with proper timezone conversion.
-        dt = dt + timedelta(hours=2)
-        # Convert to string (drop tzinfo to keep consistency with existing naive datetimes)
-        return dt.strftime('%Y-%m-%d %H:%M:%S')
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        # Try to convert to system/user timezone if available
+        try:
+            # Frappe exposes system time zone via System Settings; best-effort
+            tz_name = frappe.db.get_single_value('System Settings', 'time_zone') or 'UTC'
+            local_dt = dt.astimezone(ZoneInfo(tz_name))
+        except Exception:
+            # Fallback: assume Europe/Berlin if not configured (legacy behavior was +2h)
+            try:
+                local_dt = dt.astimezone(ZoneInfo('Europe/Berlin'))
+            except Exception:
+                # Last resort: keep UTC
+                local_dt = dt.astimezone(timezone.utc)
+        # Convert to naive string (ERPNext stores naive timestamps in many places)
+        return local_dt.replace(tzinfo=None).strftime('%Y-%m-%d %H:%M:%S')
     except Exception:
         return None
 
@@ -291,6 +302,21 @@ def _ensure_activity_type(name: str):
         })
         doc.flags.ignore_permissions = True
         doc.insert()
+
+
+def _get_activity_from_te(te: Dict[str, Any]) -> str:
+    """Extract activity type title from time entry, fallback to 'Default'."""
+    title = None
+    # Newer OP returns activity under _links.activity.title
+    title = (((te.get('_links') or {}).get('activity') or {}).get('title'))
+    if not title:
+        # Sometimes in _embedded.activity.name
+        title = (((te.get('_embedded') or {}).get('activity') or {}).get('name'))
+    if not title:
+        title = 'Default'
+    # Ensure Activity Type exists in ERPNext
+    _ensure_activity_type(title)
+    return title
 
 
 def _get_employee_for_op_user(client: OpenProjectClient, te: Dict[str, Any]) -> Optional[str]:
@@ -639,7 +665,7 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             spent_on = te.get('spentOn')  # yyyy-mm-dd
             hours = _parse_iso8601_duration_to_hours(te.get('hours'))
             comments = (te.get('comment') or {}).get('raw', '')
-            activity = 'Default'
+            activity = _get_activity_from_te(te)
             # On-site flag from OpenProject custom field; don't change Activity Type, only store flags
             on_site_flag = bool(te.get('customField1'))
             start_time_raw = te.get('startTime')
@@ -872,7 +898,9 @@ def validate_openproject_mapping(project_name: str) -> Dict[str, Any]:
     """Quick check that site/token and project mapping work."""
     site, op_project_id = _project_settings(project_name)
     client = _client(site)
-    data = client.get(f"{client.url}/api/v3/projects/{op_project_id}")
+    # Resolve identifier/url to numeric id to confirm mapping
+    pid, _ = _resolve_project_ref(client, str(op_project_id))
+    data = client.get(f"{client.url}/api/v3/projects/{pid}")
     return {
         'id': data.get('id'),
         'name': data.get('name'),

@@ -249,7 +249,7 @@ working_time_custom_fields = {
 			"fieldtype": "Data",
 			"insert_after": "openproject_site",
 			"translatable": 0,
-			"description": "Numeric ID of the corresponding OpenProject project.",
+			"description": "OpenProject project reference: numeric ID, identifier (slug), or full project URL.",
 		},
 		{
 			"fieldname": "openproject_last_synced_at",
