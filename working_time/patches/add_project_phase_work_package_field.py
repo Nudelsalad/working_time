@@ -5,12 +5,12 @@ def execute():
     fields = {
         "Project": [
             {
-                "fieldname": "openproject_phase_work_package_id",
-                "label": "OpenProject Phase Work Package ID",
+                "fieldname": "openproject_project_work_package_id",
+                "label": "OpenProject Project Work Package ID",
                 "fieldtype": "Data",
                 "insert_after": "openproject_last_synced_at",
                 "translatable": 0,
-                "description": "Optional Work Package ID of type Phase; restrict sync to its descendants.",
+                "description": "Optional Work Package ID of type Project; restrict sync to its descendants.",
             }
         ]
     }

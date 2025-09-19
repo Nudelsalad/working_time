@@ -488,7 +488,12 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
     - Creates Timesheets from time entries (if not already mirrored), linked to Task when possible.
     """
     site, op_project_id = _project_settings(project_name)
-    phase_wp_id = frappe.db.get_value('Project', project_name, 'openproject_phase_work_package_id')
+    # Work Package Type: "Project" root work package id (legacy name: phase)
+    # Backward compatibility: keep reading legacy field if new one not yet migrated.
+    project_wp_id = (
+        frappe.db.get_value('Project', project_name, 'openproject_project_work_package_id')
+        or frappe.db.get_value('Project', project_name, 'openproject_phase_work_package_id')
+    )
     client = _client(site)
     # Normalize project reference to numeric id and href
     numeric_pid, project_href = _resolve_project_ref(client, str(op_project_id))
@@ -520,53 +525,56 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
             **_build_project_filter(numeric_pid, use_href=True, field='project'),
         },
     ]
-    phase_descendant_ids: set[str] | None = None
-    phase_wp_id_str = str(phase_wp_id).strip() if phase_wp_id else None
+    project_descendant_ids: set[str] | None = None
+    project_wp_id_str = str(project_wp_id).strip() if project_wp_id else None
 
-    def _collect_phase_descendants(all_wps: Dict[str, Dict[str, Any]]):
-        """Build set of descendant WP IDs (strings) of the given phase work package id, including itself.
+    def _collect_project_descendants(all_wps: Dict[str, Dict[str, Any]]):
+        """Build set of descendant WP IDs (strings) of the given root project work package id.
 
-        We rely on each WP's _links.parent.href chain. We'll iterate until no new additions.
+    NOTE: We EXCLUDE the project root itself; only descendants
+        should be created as Tasks/Timesheet entries mapping.
+        We rely on each WP's ancestor chain via _embedded.ancestors or _links.parent.
         """
-        nonlocal phase_descendant_ids
-        if not phase_wp_id_str:
+        nonlocal project_descendant_ids
+        if not project_wp_id_str:
             return
-        # Seed with the phase itself if present
-        phase_descendant_ids = set()
-        if phase_wp_id_str in all_wps:
-            phase_descendant_ids.add(phase_wp_id_str)
-        # Include any WP that has an ancestor chain including the phase
+        project_descendant_ids = set()
+        # Collect any WP that has project_wp_id_str in its ancestor chain.
         for wp_id, wp in all_wps.items():
-            if wp_id in phase_descendant_ids:
+            if wp_id == project_wp_id_str:
+                # Explicitly skip adding root project WP itself
                 continue
-            ancestors = []
+            ancestors: list[str] = []
             embedded = (wp.get('_embedded') or {})
-            # Try ancestors array if available
             anc_list = embedded.get('ancestors') or []
             for anc in anc_list:
                 a_id = str(anc.get('id')) if anc.get('id') is not None else None
                 if a_id:
                     ancestors.append(a_id)
-            # Fallback: follow parent link chain
-            current = wp
-            safeguard = 0
-            while safeguard < 10 and not ancestors:
-                parent_link = ((current.get('_links') or {}).get('parent') or {}).get('href')
-                if not parent_link:
-                    break
-                p_id = _extract_id_from_href(parent_link)
-                if not p_id:
-                    break
-                ancestors.append(p_id)
-                if p_id in all_wps:
-                    current = all_wps[p_id]
-                else:
-                    break
-                safeguard += 1
-            if phase_wp_id_str in ancestors:
-                phase_descendant_ids.add(wp_id)
+            # Fallback: follow parent chain if no explicit ancestors provided
+            if not ancestors:
+                current = wp
+                safeguard = 0
+                while safeguard < 10:
+                    parent_link = ((current.get('_links') or {}).get('parent') or {}).get('href')
+                    if not parent_link:
+                        break
+                    p_id = _extract_id_from_href(parent_link)
+                    if not p_id:
+                        break
+                    ancestors.append(p_id)
+                    if p_id in all_wps:
+                        current = all_wps[p_id]
+                    else:
+                        break
+                    safeguard += 1
+                    # If we already encountered root id we can stop early
+                    if project_wp_id_str in ancestors:
+                        break
+            if project_wp_id_str in ancestors:
+                project_descendant_ids.add(wp_id)
 
-    # Temp storage to possibly post-filter for phase
+    # Temp storage to possibly post-filter for project-root descendant restriction
     collected_wps: Dict[str, Dict[str, Any]] = {}
 
     def _sync_wps(filters: Dict[str, Any]):
@@ -577,13 +585,15 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 continue
             wp_id_str = str(wp_id)
             collected_wps[wp_id_str] = wp
-        # If we have phase filter requested, build descendant set after first successful fetch
-        if phase_wp_id_str and phase_descendant_ids is None:
-            _collect_phase_descendants(collected_wps)
+    # If a root project work package is specified, build descendant set after first successful fetch
+        if project_wp_id_str and project_descendant_ids is None:
+            _collect_project_descendants(collected_wps)
         # Now iterate over (possibly filtered) WPs for task sync
         for wp_id_str, wp in list(collected_wps.items()):
-            if phase_wp_id_str and phase_descendant_ids is not None and wp_id_str not in phase_descendant_ids:
-                continue
+            if project_wp_id_str and project_descendant_ids is not None:
+                # Skip root itself (not in descendants set) and anything not descendant
+                if wp_id_str not in project_descendant_ids:
+                    continue
             wp_id = wp.get('id')
             existing = _find_existing_task(project_name, wp_id)
             fields = _work_package_to_task_fields(project_name, site, wp)
@@ -687,9 +697,9 @@ def sync_project_from_openproject(project_name: str) -> Dict[str, Any]:
                 wp_id = wp_link.rstrip('/').split('/')[-1]
             task_name = task_map.get(str(wp_id)) if wp_id else None
 
-            # If restricted to phase descendants we must ensure WP belongs
-            if phase_wp_id_str and phase_descendant_ids is not None:
-                if wp_id and str(wp_id) not in phase_descendant_ids:
+            # If restricted to project root descendants ensure WP belongs
+            if project_wp_id_str and project_descendant_ids is not None:
+                if wp_id and str(wp_id) not in project_descendant_ids:
                     continue
             if existing_ts_detail_name:
                 ts_detail = frappe.get_doc('Timesheet Detail', existing_ts_detail_name)

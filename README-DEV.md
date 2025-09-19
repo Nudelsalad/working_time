@@ -25,4 +25,4 @@ Manual smoke checklist (bench console or UI):
 Notes:
 
 - If your OpenProject instance requires integer project filter values, the sync now tries multiple strategies (project, project_id, href) to handle it.
-- Phase restriction: set openproject_phase_work_package_id on the Project to restrict sync to that Phase and its descendants.
+- Project restriction: set openproject_project_work_package_id on the Project to restrict sync to that Project and its descendants.
