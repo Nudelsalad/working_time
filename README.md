@@ -26,7 +26,8 @@ Companies that use OpenProject for project management and ERPNext for time track
   bench install-app working_time
   ```
 
-- Create an **OpenProject Site**, enter your _Site URL_, _Username_ and _API Token_
+- Create a **Jira Site**, enter your _Site URL_, _Username_ and _API Token_
+- Enable _Ignore Employee Time Overlap_ and _Ignore User Time Overlap_ in **Projects Settings**
 - Open or create an ERPNext **Project**
   - Link it to your **OpenProject Site**
   - Set the _Billing Rate per Hour_
